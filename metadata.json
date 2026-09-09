@@ -1,0 +1,11 @@
+{
+  "name": "AssessPro Enterprise",
+  "description": "Premium SaaS platform for employee assessment digitalization, SOP training register management, and reviewer-led evaluation workflows.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

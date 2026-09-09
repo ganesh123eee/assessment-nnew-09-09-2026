@@ -1,0 +1,182 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "System user with role-based access",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["super_admin", "hr_admin", "reviewer", "employee"] },
+        "departmentId": { "type": "string" },
+        "designation": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "inactive"] }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Department": {
+      "title": "Department",
+      "description": "Organizational department",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "Template": {
+      "title": "Assessment Template",
+      "description": "Template for assessments",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "questions": { "type": "array" },
+        "createdBy": { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "active", "inactive"] }
+      }
+    },
+    "Assignment": {
+      "title": "Assessment Assignment",
+      "description": "Assignment of a template to users or departments",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "templateId": { "type": "string" },
+        "type": { "type": "string", "enum": ["individual", "department"] },
+        "targetIds": { "type": "array" },
+        "reviewerId": { "type": "string" },
+        "dueDate": { "type": "string", "format": "date-time" },
+        "status": { "type": "string" }
+      }
+    },
+    "Submission": {
+      "title": "Assessment Submission",
+      "description": "Employee submission for an assignment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "assignmentId": { "type": "string" },
+        "employeeId": { "type": "string" },
+        "answers": { "type": "array" },
+        "status": { "type": "string", "enum": ["submitted", "under_review", "completed"] },
+        "submittedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Review": {
+      "title": "Review Evaluation",
+      "description": "Reviewer evaluation of a submission",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "submissionId": { "type": "string" },
+        "reviewerId": { "type": "string" },
+        "score": { "type": "number" },
+        "result": { "type": "string", "enum": ["pass", "fail"] },
+        "comments": { "type": "string" },
+        "retestRequired": { "type": "boolean" },
+        "reviewedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "AuditLog": {
+      "title": "Audit Log",
+      "description": "System audit trail",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "action": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "details": { "type": "object" }
+      }
+    },
+    "Settings": {
+      "title": "System Settings",
+      "description": "Global system configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "data": { "type": "object" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string" }
+      }
+    },
+    "Notification": {
+      "title": "User Notification",
+      "description": "In-app notification for a specific user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["success", "warning", "info"] },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "message", "read", "createdAt"]
+    },
+    "TrainingRegister": {
+      "title": "Training Register",
+      "description": "SOP Training attendance register with sequential digital signatures",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "trainingTitle": { "type": "string" },
+        "date": { "type": "string" },
+        "modeOfTraining": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "trainerName": { "type": "string" },
+        "trainerId": { "type": "string" },
+        "trainerEmail": { "type": "string" },
+        "trainerSignatureData": { "type": "string" },
+        "trainerSignedDate": { "type": "string" },
+        "assessmentConducted": { "type": "string", "enum": ["Yes", "No"] },
+        "assessmentComment": { "type": "string" },
+        "attendees": { "type": "array" },
+        "workflowStatus": { "type": "string", "enum": ["draft", "in_progress", "awaiting_trainer", "completed"] },
+        "currentSignerIndex": { "type": "number" },
+        "templateDocCode": { "type": "string" },
+        "templateVersion": { "type": "string" },
+        "templateEffectiveDate": { "type": "string" },
+        "confidentialText": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["trainingTitle", "date", "modeOfTraining", "trainerName", "assessmentConducted", "workflowStatus"]
+    },
+    "TrainingRegisterTemplate": {
+      "title": "Training Register Template Configuration",
+      "description": "Configuration and metadata for the SOP training register template",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "documentCode": { "type": "string" },
+        "version": { "type": "string" },
+        "effectiveDate": { "type": "string" },
+        "confidentialText": { "type": "string" },
+        "availableModes": { "type": "array" },
+        "qualityTeamEmails": { "type": "array" },
+        "itTeamEmails": { "type": "array" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{uid}": { "schema": "User", "description": "User profiles" },
+    "/departments/{id}": { "schema": "Department", "description": "Departments" },
+    "/templates/{id}": { "schema": "Template", "description": "Assessment templates" },
+    "/assignments/{id}": { "schema": "Assignment", "description": "Assignments" },
+    "/submissions/{id}": { "schema": "Submission", "description": "Employee submissions" },
+    "/reviews/{id}": { "schema": "Review", "description": "Evaluations" },
+    "/auditLogs/{id}": { "schema": "AuditLog", "description": "Audit trail" },
+    "/mail/{id}": { "schema": "object", "description": "Email notifications" },
+    "/settings/{id}": { "schema": "Settings", "description": "System settings" },
+    "/notifications/{id}": { "schema": "Notification", "description": "User notifications" },
+    "/training_registers/{id}": { "schema": "TrainingRegister", "description": "Training registers" },
+    "/training_register_templates/{id}": { "schema": "TrainingRegisterTemplate", "description": "Training register templates" }
+  }
+}

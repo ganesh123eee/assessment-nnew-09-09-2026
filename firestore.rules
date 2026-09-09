@@ -1,0 +1,99 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isUser(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isSuperAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email == 'ganesh@symetricsystems.com' ||
+        request.auth.token.email == 'ganesh123eee@gmail.com' ||
+        (getUserData().get('roles', []).hasAny(['super_admin']))
+      );
+    }
+
+    function isHRAdmin() {
+      return isAuthenticated() && (getUserData().get('roles', []).hasAny(['hr_admin']) || isSuperAdmin());
+    }
+
+    function isReviewer() {
+      return isAuthenticated() && (getUserData().get('roles', []).hasAny(['reviewer']) || isHRAdmin());
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    match /roles/{id} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /users/{uid} {
+      allow read, write: if true;
+    }
+
+    match /departments/{id} {
+      allow read: if true;
+      allow write: if true; // Insecure, but needed if not using Firebase Auth
+    }
+
+    match /templates/{id} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /assignments/{id} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /submissions/{id} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if true;
+    }
+
+    match /reviews/{id} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /auditLogs/{id} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /notifications/{id} {
+      allow read, write: if true;
+    }
+
+    match /mail/{id} {
+      allow create: if true;
+    }
+
+    match /settings/{id} {
+      allow read, write: if true;
+    }
+
+    match /training_registers/{id} {
+      allow read, write: if true;
+    }
+
+    match /training_register_templates/{id} {
+      allow read, write: if true;
+    }
+  }
+}
