@@ -32,6 +32,16 @@ export default function TrainingRegisterList() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
+  const canDownloadRegister = Boolean(
+    isAdmin ||
+    isHR ||
+    isQM ||
+    currentUser?.roles?.some((r) => ['super_admin', 'hr_admin', 'quality_management'].includes(r)) ||
+    currentUser?.role === 'super_admin' ||
+    currentUser?.role === 'hr_admin' ||
+    currentUser?.role === 'quality_management'
+  );
+
   useEffect(() => {
     const unsubscribe = firestoreService.subscribeToCollection<TrainingRegister>(
       'training_registers',
@@ -83,6 +93,10 @@ export default function TrainingRegisterList() {
   };
 
   const handleDownload = async (register: TrainingRegister) => {
+    if (!canDownloadRegister) {
+      toast.error('Access Denied: Training register download is restricted to Admin and Quality Team members.');
+      return;
+    }
     setDownloadingId(register.id);
     try {
       await trainingRegisterService.generateTrainingRegisterPDF(register, branding);
@@ -287,21 +301,23 @@ export default function TrainingRegisterList() {
                             <span>View</span>
                           </Link>
 
-                          {/* Download PDF button */}
-                          <button
-                            type="button"
-                            disabled={downloadingId === reg.id}
-                            onClick={() => handleDownload(reg)}
-                            className={cn(
-                              'p-1.5 rounded-lg transition-colors border',
-                              isCompleted
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
-                                : 'hover:bg-accent text-muted-foreground hover:text-foreground'
-                            )}
-                            title={isCompleted ? 'Download Verified Register PDF' : 'Download Draft PDF'}
-                          >
-                            <Download className="w-4 h-4" />
-                          </button>
+                          {/* Download PDF button - restricted to Admin and Quality team */}
+                          {canDownloadRegister && (
+                            <button
+                              type="button"
+                              disabled={downloadingId === reg.id}
+                              onClick={() => handleDownload(reg)}
+                              className={cn(
+                                'p-1.5 rounded-lg transition-colors border',
+                                isCompleted
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                                  : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                              )}
+                              title={isCompleted ? 'Download Verified Register PDF' : 'Download Draft PDF'}
+                            >
+                              <Download className="w-4 h-4" />
+                            </button>
+                          )}
 
                           {/* Delete button */}
                           {(isAdmin || isHR || isQM || hasPermission('manage_training_registers') || (currentUser && reg.createdBy === currentUser.uid)) && (

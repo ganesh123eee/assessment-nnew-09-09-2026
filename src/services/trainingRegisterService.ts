@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { TrainingRegister, TrainingRegisterTemplateConfig, TrainingAttendee } from '../types';
+import { TrainingRegister, TrainingRegisterTemplateConfig, TrainingAttendee, User as UserType } from '../types';
 import { formatDate } from '../lib/utils';
 import { firestoreService } from './firestoreService';
 import { drawPdfBrandingHeader } from '../utils/pdfBranding';
@@ -15,6 +15,25 @@ export const DEFAULT_TEMPLATE_CONFIG: TrainingRegisterTemplateConfig = {
   qualityTeamEmails: ['qa@symetricsystems.com', 'ganesh@symetricsystems.com'],
   itTeamEmails: ['it@symetricsystems.com', 'ganesh123eee@gmail.com']
 };
+
+// Helper to measure signature image natural aspect ratio
+async function getImageDimensions(src: string): Promise<{ width: number; height: number }> {
+  if (!src) return { width: 300, height: 100 };
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'Anonymous';
+    img.onload = () => {
+      resolve({
+        width: img.naturalWidth || 300,
+        height: img.naturalHeight || 100
+      });
+    };
+    img.onerror = () => {
+      resolve({ width: 300, height: 100 });
+    };
+    img.src = src;
+  });
+}
 
 export const trainingRegisterService = {
   async getTemplateConfig(): Promise<TrainingRegisterTemplateConfig> {
@@ -370,17 +389,31 @@ export const trainingRegisterService = {
       assessmentText += register.assessmentComment ? ` (Reason: ${register.assessmentComment})` : ' (If no then comment)';
     }
 
+    // Pre-filter valid attendees (only listed attendees)
+    const validAttendees = (register.attendees || []).filter(
+      (attendee) => (attendee.traineeName && attendee.traineeName.trim().length > 0) || (attendee.employeeId && attendee.employeeId.trim().length > 0)
+    );
+
+    // Pre-measure signature dimensions for trainer and attendees to render with accurate natural aspect ratios
+    const trainerSigDims = register.trainerSignatureData
+      ? await getImageDimensions(register.trainerSignatureData)
+      : null;
+
+    const attendeeSigDims = await Promise.all(
+      validAttendees.map(async (a) => (a.signatureData ? await getImageDimensions(a.signatureData) : null))
+    );
+
     // AutoTable for the Top Table matching the image:
     // Row 1: Training Title (label) | Value
     // Row 2: Date (DD-MMM-YYYY) | Mode of Training: [x] Classroom [ ] On the Job [ ] Online
     // Row 3: Start Time | End Time
-    // Row 4: Trainer Name | Signature and Date
+    // Row 4: Trainer Name | Signature and Date (renders digital cursive signature + underline + date)
     // Row 5: Assessment conducted | Yes / No (If no then comment)
     
     const modeString = `Mode of Training: ${register.modeOfTraining}`;
-    const trainerSigText = register.trainerSignedDate 
+    const trainerSigFallback = register.trainerSignedDate 
       ? `Signed: ${register.trainerSignedDate}` 
-      : (register.trainerSignatureData ? `Signed: ${register.date}` : 'Signature and Date: Pending');
+      : (register.trainerSignatureData ? `Signed: ${register.date}` : 'Pending');
 
     autoTable(doc, {
       startY: formStartY,
@@ -414,14 +447,63 @@ export const trainingRegisterService = {
           { content: 'Trainer Name', styles: { fontStyle: 'bold', cellWidth: 38 } },
           { content: register.trainerName || 'N/A', styles: { cellWidth: 52 } },
           { content: 'Signature and Date', styles: { fontStyle: 'bold', cellWidth: 32 } },
-          { content: trainerSigText, styles: { fontStyle: 'italic' } }
+          { 
+            content: register.trainerSignatureData ? '' : trainerSigFallback, 
+            styles: { 
+              minCellHeight: register.trainerSignatureData ? 12 : undefined,
+              fontStyle: 'italic' 
+            } 
+          }
         ],
         [
           { content: 'Assessment conducted', styles: { fontStyle: 'bold', cellWidth: 38 } },
           { content: assessmentText, colSpan: 3 }
         ]
       ],
-      margin: { left: margin, right: margin }
+      margin: { left: margin, right: margin },
+      didDrawCell: (data) => {
+        if (data.section === 'body' && data.row.index === 3 && data.column.index === 3) {
+          if (register.trainerSignatureData) {
+            try {
+              const cell = data.cell;
+              const aspect = (trainerSigDims?.width && trainerSigDims?.height)
+                ? trainerSigDims.width / trainerSigDims.height
+                : 2.5;
+
+              let sigH = Math.min(7.5, cell.height - 3);
+              let sigW = sigH * aspect;
+              const maxW = Math.min(26, cell.width - 24);
+              if (sigW > maxW) {
+                sigW = maxW;
+                sigH = maxW / aspect;
+              }
+
+              const sigX = cell.x + 3;
+              const sigY = cell.y + (cell.height - sigH) / 2 - 0.5;
+
+              doc.addImage(register.trainerSignatureData, 'PNG', sigX, sigY, sigW, sigH, undefined, 'FAST');
+
+              // Underline below signature image (as shown in view mode)
+              doc.setDrawColor(70, 70, 70);
+              doc.setLineWidth(0.25);
+              doc.line(sigX, cell.y + cell.height - 2, sigX + Math.max(sigW, 18), cell.y + cell.height - 2);
+
+              // Date text on right side of cell
+              const dateStr = register.trainerSignedDate || register.date || '';
+              doc.setFont('helvetica', 'normal');
+              doc.setFontSize(8);
+              doc.setTextColor(30, 41, 59);
+              doc.text(dateStr, cell.x + cell.width - 3, cell.y + cell.height / 2 + 2.5, { align: 'right' });
+            } catch (err) {
+              console.error('Failed to draw trainer signature image in PDF:', err);
+              doc.setFont('helvetica', 'italic');
+              doc.setFontSize(8);
+              doc.setTextColor(30, 41, 59);
+              doc.text(`Signed: ${register.trainerSignedDate || register.date}`, data.cell.x + 3, data.cell.y + data.cell.height / 2 + 2.5);
+            }
+          }
+        }
+      }
     });
 
     let currentY = (doc as any).lastAutoTable.finalY + 8;
@@ -438,39 +520,66 @@ export const trainingRegisterService = {
 
     currentY += 4;
 
-    // Attendees Table - only show attendees that are actually listed, no empty padded rows
-    const validAttendees = (register.attendees || []).filter(
-      (attendee) => (attendee.traineeName && attendee.traineeName.trim().length > 0) || (attendee.employeeId && attendee.employeeId.trim().length > 0)
-    );
+    // Fetch users to accurately resolve Employee IDs if not set on attendee
+    let allUsers: UserType[] = [];
+    try {
+      allUsers = await firestoreService.getCollection<UserType>('users');
+    } catch (e) {
+      console.warn('Could not fetch users for employee ID resolution in PDF:', e);
+    }
 
-    const attendeesBody = validAttendees.map((attendee, index) => {
+    // Attendees Table - only show attendees that are actually listed, with dedicated Employee ID column
+    const attendeesBody: any[][] = validAttendees.map((attendee, index) => {
       const sno = String(index + 1).padStart(2, '0');
+
+      // Accurately resolve Employee ID
+      const matchedUser = allUsers.find(
+        (u) =>
+          u.uid === attendee.employeeId ||
+          (attendee.email && u.email?.toLowerCase().trim() === attendee.email.toLowerCase().trim()) ||
+          (attendee.traineeName && u.displayName?.toLowerCase().trim() === attendee.traineeName.toLowerCase().trim()) ||
+          u.employeeId === attendee.employeeId
+      );
+
+      const displayEmpId =
+        attendee.employeeId && !attendee.employeeId.includes('@') && attendee.employeeId.length < 25
+          ? attendee.employeeId
+          : (matchedUser?.employeeId || attendee.employeeId || '—');
+
+      const traineeName = attendee.traineeName || '—';
+
+      if (attendee.signatureData) {
+        return [
+          { content: sno, styles: { halign: 'center', fontStyle: 'bold' } },
+          { content: displayEmpId, styles: { halign: 'center', fontStyle: 'bold' } },
+          { content: traineeName },
+          { content: '', styles: { minCellHeight: 12 } }
+        ];
+      }
+
       let sigCell = 'Pending';
-      if (attendee.status === 'signed' || attendee.signatureData || attendee.signedDate) {
-        sigCell = `Signed on ${attendee.signedDate || attendee.signedAt ? formatDate(attendee.signedDate || attendee.signedAt || '') : register.date}`;
+      if (attendee.status === 'signed' || attendee.signedDate) {
+        sigCell = `Signed on ${attendee.signedDate || (attendee.signedAt ? formatDate(attendee.signedAt) : register.date)}`;
       } else if (attendee.status === 'pending') {
         sigCell = 'Awaiting Signature';
       } else {
         sigCell = 'Waiting Turn';
       }
 
-      // Display Trainee Name with Employee ID
-      const traineeDisplay = attendee.employeeId
-        ? `${attendee.traineeName || '—'} [ID: ${attendee.employeeId}]`
-        : (attendee.traineeName || '—');
-
       return [
-        { content: sno, styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
-        { content: traineeDisplay },
-        { content: sigCell, styles: { fontStyle: (attendee.status === 'signed' ? 'italic' : 'normal') as any } }
+        { content: sno, styles: { halign: 'center', fontStyle: 'bold' } },
+        { content: displayEmpId, styles: { halign: 'center', fontStyle: 'bold' } },
+        { content: traineeName },
+        { content: sigCell, styles: { fontStyle: attendee.status === 'signed' ? 'italic' : 'normal' } }
       ];
     });
 
     if (attendeesBody.length === 0) {
       attendeesBody.push([
-        { content: '01', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
+        { content: '01', styles: { halign: 'center', fontStyle: 'bold' } },
+        { content: '—', styles: { halign: 'center' } },
         { content: 'No attendees listed' },
-        { content: '—', styles: { halign: 'center' as const } }
+        { content: '—', styles: { halign: 'center', fontStyle: 'normal' } }
       ]);
     }
 
@@ -494,13 +603,58 @@ export const trainingRegisterService = {
       },
       head: [
         [
-          { content: 'Sl. No.', styles: { halign: 'center', cellWidth: 20 } },
-          { content: 'Trainee Name / Employee ID', styles: { cellWidth: 85 } },
+          { content: 'Sl. No.', styles: { halign: 'center', cellWidth: 18 } },
+          { content: 'Employee ID', styles: { halign: 'center', cellWidth: 32 } },
+          { content: 'Trainee Name', styles: { cellWidth: 65 } },
           { content: 'Date and signature', styles: { halign: 'center' } }
         ]
       ],
       body: attendeesBody,
       margin: { left: margin, right: margin, bottom: 18 },
+      didDrawCell: (data) => {
+        if (data.section === 'body' && data.column.index === 3) {
+          const attendee = validAttendees[data.row.index];
+          if (attendee && attendee.signatureData) {
+            try {
+              const cell = data.cell;
+              const dims = attendeeSigDims[data.row.index];
+              const aspect = (dims?.width && dims?.height) ? dims.width / dims.height : 2.5;
+
+              let sigH = Math.min(7.5, cell.height - 3);
+              let sigW = sigH * aspect;
+              const maxW = Math.min(30, cell.width - 26);
+              if (sigW > maxW) {
+                sigW = maxW;
+                sigH = maxW / aspect;
+              }
+
+              const sigX = cell.x + 4;
+              const sigY = cell.y + (cell.height - sigH) / 2 - 0.5;
+
+              doc.addImage(attendee.signatureData, 'PNG', sigX, sigY, sigW, sigH, undefined, 'FAST');
+
+              // Underline below signature image (as shown in view mode)
+              doc.setDrawColor(70, 70, 70);
+              doc.setLineWidth(0.25);
+              doc.line(sigX, cell.y + cell.height - 2, sigX + Math.max(sigW, 20), cell.y + cell.height - 2);
+
+              // Date text on right side of cell
+              const dateStr = attendee.signedDate || (attendee.signedAt ? formatDate(attendee.signedAt) : register.date);
+              doc.setFont('helvetica', 'normal');
+              doc.setFontSize(8);
+              doc.setTextColor(30, 41, 59);
+              doc.text(dateStr, cell.x + cell.width - 4, cell.y + cell.height / 2 + 2.5, { align: 'right' });
+            } catch (err) {
+              console.error('Failed to draw attendee signature image in PDF:', err);
+              const dateStr = attendee.signedDate || (attendee.signedAt ? formatDate(attendee.signedAt) : register.date);
+              doc.setFont('helvetica', 'italic');
+              doc.setFontSize(8);
+              doc.setTextColor(30, 41, 59);
+              doc.text(`Signed: ${dateStr}`, data.cell.x + 4, data.cell.y + data.cell.height / 2 + 2.5);
+            }
+          }
+        }
+      },
       didDrawPage: (data) => {
         // Footer: OPS-TRG-REG V1.1.3 | Date: 27-Jul-2026 ... Confidential ... Page X of Y
         const footerY = pageHeight - 10;

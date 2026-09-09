@@ -16,7 +16,10 @@ import {
   Calendar,
   Sparkles,
   Mail,
-  FileText
+  FileText,
+  Search,
+  ChevronDown,
+  X
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
@@ -25,7 +28,8 @@ import {
   TrainingRegister, 
   TrainingAttendee, 
   TrainingRegisterTemplateConfig, 
-  User as UserType 
+  User as UserType,
+  Template
 } from '../types';
 import { formatDate, cn } from '../lib/utils';
 import { trainingRegisterService, DEFAULT_TEMPLATE_CONFIG } from '../services/trainingRegisterService';
@@ -47,6 +51,36 @@ export default function TrainingRegisterDetail() {
   const [templateConfig, setTemplateConfig] = useState<TrainingRegisterTemplateConfig>(DEFAULT_TEMPLATE_CONFIG);
   const [isCustomTrainer, setIsCustomTrainer] = useState(false);
   const [autoPrompted, setAutoPrompted] = useState(false);
+
+  // Template dropdown and search state
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [templateSearchTerm, setTemplateSearchTerm] = useState('');
+  const [isTemplateDropdownOpen, setIsTemplateDropdownOpen] = useState(false);
+
+  // Role restriction for download
+  const canDownloadRegister = Boolean(
+    isAdmin ||
+    isHR ||
+    isQM ||
+    currentUser?.roles?.some((r) => ['super_admin', 'hr_admin', 'quality_management'].includes(r)) ||
+    currentUser?.role === 'super_admin' ||
+    currentUser?.role === 'hr_admin' ||
+    currentUser?.role === 'quality_management'
+  );
+
+  // Realtime subscription to templates so future created templates appear automatically
+  useEffect(() => {
+    const unsub = firestoreService.subscribeToCollection<Template>(
+      'templates',
+      [],
+      (data) => {
+        setTemplates(data || []);
+      }
+    );
+    return () => {
+      unsub();
+    };
+  }, []);
 
   // Signature modal state
   const [signatureModalOpen, setSignatureModalOpen] = useState(false);
@@ -181,7 +215,7 @@ export default function TrainingRegisterDetail() {
     if (selectedUser) {
       updated[index] = {
         ...updated[index],
-        employeeId: selectedUser.uid,
+        employeeId: selectedUser.employeeId || selectedUser.uid,
         traineeName: selectedUser.displayName,
         email: selectedUser.email,
         designation: selectedUser.designation,
@@ -198,13 +232,28 @@ export default function TrainingRegisterDetail() {
     setFormData((prev) => ({ ...prev, attendees: updated }));
   };
 
-  const handleTraineeCustomChange = (index: number, field: 'traineeName' | 'email', value: string) => {
+  const handleTraineeCustomChange = (index: number, field: 'traineeName' | 'email' | 'employeeId', value: string) => {
     const updated = [...formData.attendees];
     updated[index] = {
       ...updated[index],
       [field]: value
     };
     setFormData((prev) => ({ ...prev, attendees: updated }));
+  };
+
+  // Helper to accurately resolve Employee ID for display and verification
+  const getAttendeeEmployeeId = (attendee: TrainingAttendee) => {
+    if (attendee.employeeId && !attendee.employeeId.includes('@') && attendee.employeeId.length < 25) {
+      return attendee.employeeId;
+    }
+    const matchedUser = users.find(
+      (u) =>
+        u.uid === attendee.employeeId ||
+        (attendee.email && u.email?.toLowerCase().trim() === attendee.email.toLowerCase().trim()) ||
+        (attendee.traineeName && u.displayName?.toLowerCase().trim() === attendee.traineeName.toLowerCase().trim()) ||
+        u.employeeId === attendee.employeeId
+    );
+    return matchedUser?.employeeId || attendee.employeeId || '—';
   };
 
   // Trainer dropdown change (select from registered users or custom)
@@ -525,8 +574,12 @@ export default function TrainingRegisterDetail() {
     }
   };
 
-  // Download PDF
+  // Download PDF - restricted to Admin and Quality Team
   const handleDownloadPDF = async () => {
+    if (!canDownloadRegister) {
+      toast.error('Access Denied: Training register download is restricted to Admin and Quality Team members.');
+      return;
+    }
     setDownloading(true);
     try {
       await trainingRegisterService.generateTrainingRegisterPDF(formData, branding);
@@ -678,22 +731,24 @@ export default function TrainingRegisterDetail() {
             </button>
           )}
 
-          {/* Download PDF button */}
-          <button
-            type="button"
-            disabled={downloading}
-            onClick={handleDownloadPDF}
-            className={cn(
-              'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-xs',
-              formData.workflowStatus === 'completed'
-                ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-500/30'
-                : 'border hover:bg-accent text-foreground'
-            )}
-            title={formData.workflowStatus === 'completed' ? 'Official Completed PDF Ready' : 'Download Current State'}
-          >
-            <Download className="w-4 h-4" />
-            {downloading ? 'Generating PDF...' : 'Download Register PDF'}
-          </button>
+          {/* Download PDF button - restricted to Admin and Quality team */}
+          {canDownloadRegister && (
+            <button
+              type="button"
+              disabled={downloading}
+              onClick={handleDownloadPDF}
+              className={cn(
+                'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-xs',
+                formData.workflowStatus === 'completed'
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-500/30'
+                  : 'border hover:bg-accent text-foreground'
+              )}
+              title={formData.workflowStatus === 'completed' ? 'Official Completed PDF Ready' : 'Download Current State'}
+            >
+              <Download className="w-4 h-4" />
+              {downloading ? 'Generating PDF...' : 'Download Register PDF'}
+            </button>
+          )}
 
           {/* Delete Register button */}
           {!isNew && (isAdmin || isHR || isQM || hasPermission('manage_training_registers') || (currentUser && formData.createdBy === currentUser.uid)) && (
@@ -786,13 +841,15 @@ export default function TrainingRegisterDetail() {
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={handleDownloadPDF}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl whitespace-nowrap shadow-xs transition-colors flex items-center gap-1.5"
-          >
-            <Download className="w-3.5 h-3.5" /> Download Verified PDF
-          </button>
+          {canDownloadRegister && (
+            <button
+              type="button"
+              onClick={handleDownloadPDF}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl whitespace-nowrap shadow-xs transition-colors flex items-center gap-1.5"
+            >
+              <Download className="w-3.5 h-3.5" /> Download Verified PDF
+            </button>
+          )}
         </div>
       )}
 
@@ -837,20 +894,124 @@ export default function TrainingRegisterDetail() {
 
         {/* TOP METADATA TABLE (Bordered Box Grid matching paper document) */}
         <div className="border-2 border-foreground/80 rounded-lg overflow-hidden text-sm bg-background">
-          {/* Row 1: Training Title */}
+          {/* Row 1: Training Title with Template dropdown selector & search */}
           <div className="grid grid-cols-1 md:grid-cols-4 border-b-2 border-foreground/80">
-            <div className="p-3 font-bold bg-muted/40 md:border-r-2 border-foreground/80 flex items-center">
-              Training Title
+            <div className="p-3 font-bold bg-muted/40 md:border-r-2 border-foreground/80 flex items-center justify-between">
+              <span>Training Title</span>
             </div>
             <div className="p-2 md:col-span-3">
-              <input
-                type="text"
-                disabled={formData.workflowStatus !== 'draft'}
-                value={formData.trainingTitle}
-                onChange={(e) => setFormData({ ...formData, trainingTitle: e.target.value })}
-                placeholder="Enter training title (e.g. IQ and OPQ Process)"
-                className="w-full px-3 py-1.5 bg-transparent border-none outline-none font-semibold text-foreground focus:bg-accent/40 rounded-md"
-              />
+              {formData.workflowStatus === 'draft' ? (
+                <div className="space-y-2 relative">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <input
+                      type="text"
+                      value={formData.trainingTitle}
+                      onChange={(e) => setFormData({ ...formData, trainingTitle: e.target.value })}
+                      placeholder="Enter training title or select from available templates..."
+                      className="flex-1 px-3 py-1.5 bg-background border rounded-md outline-none font-semibold text-foreground focus:ring-2 focus:ring-primary/30 text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setIsTemplateDropdownOpen(!isTemplateDropdownOpen)}
+                      className="px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded-md text-xs font-semibold whitespace-nowrap flex items-center justify-center gap-1.5 transition-colors"
+                      title="Browse available assessment templates"
+                    >
+                      <Search className="w-3.5 h-3.5" />
+                      <span>Select Template ({templates.length} available)</span>
+                      <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", isTemplateDropdownOpen && "rotate-180")} />
+                    </button>
+                  </div>
+
+                  {/* Template search dropdown */}
+                  {isTemplateDropdownOpen && (
+                    <div className="absolute z-20 top-full left-0 right-0 mt-1 border rounded-xl p-3 bg-card shadow-xl space-y-2.5">
+                      <div className="flex items-center justify-between gap-2 border-b pb-2">
+                        <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                          <span>Templates Library</span>
+                          <span className="px-2 py-0.5 bg-primary/10 text-primary rounded-full text-[11px] font-semibold">
+                            {templates.length} templates available
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setIsTemplateDropdownOpen(false)}
+                          className="text-muted-foreground hover:text-foreground text-xs p-1"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                          <input
+                            type="text"
+                            value={templateSearchTerm}
+                            onChange={(e) => setTemplateSearchTerm(e.target.value)}
+                            placeholder="Search template title, skill, or department..."
+                            className="w-full pl-8 pr-3 py-1.5 bg-background border rounded-md text-xs outline-none focus:ring-2 focus:ring-primary/30"
+                            autoFocus
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {}}
+                          className="px-3 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-md flex items-center gap-1 shadow-2xs"
+                        >
+                          <Search className="w-3 h-3" />
+                          Search
+                        </button>
+                      </div>
+
+                      <div className="max-h-52 overflow-y-auto divide-y border rounded-md bg-background">
+                        {templates
+                          .filter((t) =>
+                            !templateSearchTerm ||
+                            t.name.toLowerCase().includes(templateSearchTerm.toLowerCase()) ||
+                            t.description?.toLowerCase().includes(templateSearchTerm.toLowerCase()) ||
+                            t.skillCategory?.toLowerCase().includes(templateSearchTerm.toLowerCase())
+                          )
+                          .map((t) => (
+                            <button
+                              key={t.id}
+                              type="button"
+                              onClick={() => {
+                                setFormData({ ...formData, trainingTitle: t.name });
+                                setIsTemplateDropdownOpen(false);
+                                toast.success(`Template selected: "${t.name}"`);
+                              }}
+                              className="w-full text-left p-2.5 hover:bg-accent transition-colors flex items-center justify-between group"
+                            >
+                              <div className="space-y-0.5">
+                                <p className="text-xs font-bold text-foreground group-hover:text-primary transition-colors">
+                                  {t.name}
+                                </p>
+                                <p className="text-[11px] text-muted-foreground">
+                                  {t.skillCategory || 'General'} • {t.questions?.length || 0} Questions • Pass {t.passingScore || 80}%
+                                </p>
+                              </div>
+                              <span className="text-[11px] text-primary font-semibold opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pl-2">
+                                Apply &rarr;
+                              </span>
+                            </button>
+                          ))}
+                        {templates.filter((t) =>
+                          !templateSearchTerm ||
+                          t.name.toLowerCase().includes(templateSearchTerm.toLowerCase()) ||
+                          t.description?.toLowerCase().includes(templateSearchTerm.toLowerCase()) ||
+                          t.skillCategory?.toLowerCase().includes(templateSearchTerm.toLowerCase())
+                        ).length === 0 && (
+                          <div className="p-4 text-center text-xs text-muted-foreground italic">
+                            No templates found matching "{templateSearchTerm}"
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="font-semibold text-foreground px-3 py-1.5 text-sm">{formData.trainingTitle}</p>
+              )}
             </div>
           </div>
 
@@ -1119,7 +1280,8 @@ export default function TrainingRegisterDetail() {
             <table className="w-full text-left border-collapse text-sm">
               <thead>
                 <tr className="bg-muted/60 border-b-2 border-foreground/80 text-foreground">
-                  <th className="py-2.5 px-4 font-bold w-16 text-center border-r-2 border-foreground/80">S.No</th>
+                  <th className="py-2.5 px-3 font-bold w-16 text-center border-r-2 border-foreground/80">S.No</th>
+                  <th className="py-2.5 px-3 font-bold w-36 text-center border-r-2 border-foreground/80">Employee ID</th>
                   <th className="py-2.5 px-4 font-bold border-r-2 border-foreground/80">Trainee Name</th>
                   <th className="py-2.5 px-4 font-bold text-center w-72">Date and signature</th>
                   {formData.workflowStatus === 'draft' && (
@@ -1152,8 +1314,25 @@ export default function TrainingRegisterDetail() {
                       )}
                     >
                       {/* S.No */}
-                      <td className="py-2.5 px-4 text-center font-bold text-foreground font-mono border-r-2 border-foreground/80">
+                      <td className="py-2.5 px-3 text-center font-bold text-foreground font-mono border-r-2 border-foreground/80">
                         {String(attendee.slNo).padStart(2, '0')}
+                      </td>
+
+                      {/* Employee ID column */}
+                      <td className="py-2 px-3 border-r-2 border-foreground/80 text-center">
+                        {formData.workflowStatus === 'draft' ? (
+                          <input
+                            type="text"
+                            value={attendee.employeeId || ''}
+                            onChange={(e) => handleTraineeCustomChange(index, 'employeeId', e.target.value)}
+                            placeholder="EMP ID..."
+                            className="w-full px-2 py-1 bg-background border rounded-md text-xs font-mono font-bold text-primary outline-none focus:ring-1 focus:ring-primary text-center"
+                          />
+                        ) : (
+                          <span className="font-mono text-xs font-bold px-2 py-1 bg-muted/80 text-primary rounded-md inline-block">
+                            {getAttendeeEmployeeId(attendee)}
+                          </span>
+                        )}
                       </td>
 
                       {/* Trainee Name */}
@@ -1170,7 +1349,7 @@ export default function TrainingRegisterDetail() {
                                 <option value="">Select registered employee...</option>
                                 {users.map((u) => (
                                   <option key={u.uid} value={u.uid}>
-                                    {u.displayName} ({u.email})
+                                    {u.displayName} {u.employeeId ? `[ID: ${u.employeeId}]` : ''} ({u.email})
                                   </option>
                                 ))}
                               </select>
