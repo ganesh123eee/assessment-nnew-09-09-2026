@@ -62,7 +62,18 @@ export default function TrainingRegisterDetail() {
     isAdmin ||
     isHR ||
     isQM ||
-    currentUser?.roles?.some((r) => ['super_admin', 'hr_admin', 'quality_management'].includes(r)) ||
+    currentUser?.roles?.some((r) => ['super_admin', 'hr_admin', 'quality_management'].includes(r as any)) ||
+    currentUser?.role === 'super_admin' ||
+    currentUser?.role === 'hr_admin' ||
+    currentUser?.role === 'quality_management'
+  );
+
+  // Role restriction for delete - strictly restricted to Admin and Quality Team members
+  const canDeleteRegister = Boolean(
+    isAdmin ||
+    isHR ||
+    isQM ||
+    currentUser?.roles?.some((r) => ['super_admin', 'hr_admin', 'quality_management'].includes(r as any)) ||
     currentUser?.role === 'super_admin' ||
     currentUser?.role === 'hr_admin' ||
     currentUser?.role === 'quality_management'
@@ -380,6 +391,10 @@ export default function TrainingRegisterDetail() {
 
   const handleDeleteRegister = async () => {
     if (!formData.id) return;
+    if (!canDeleteRegister) {
+      toast.error('Access Denied: Deleting training registers is restricted to Admin and Quality Team members.');
+      return;
+    }
     setIsDeleting(true);
     const toastId = toast.loading(`Deleting register "${formData.trainingTitle || 'Training Register'}"...`);
     try {
@@ -750,8 +765,8 @@ export default function TrainingRegisterDetail() {
             </button>
           )}
 
-          {/* Delete Register button */}
-          {!isNew && (isAdmin || isHR || isQM || hasPermission('manage_training_registers') || (currentUser && formData.createdBy === currentUser.uid)) && (
+          {/* Delete Register button - strictly restricted to Admin and Quality Team */}
+          {!isNew && canDeleteRegister && (
             <button
               type="button"
               disabled={saving || downloading || isDeleting}
@@ -875,13 +890,6 @@ export default function TrainingRegisterDetail() {
                 <span className="text-xs text-muted-foreground font-medium">{branding.appName}</span>
               )}
             </div>
-          </div>
-
-          {/* Top right label */}
-          <div className="text-right">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Training Register Template
-            </span>
           </div>
         </div>
 
@@ -1463,7 +1471,7 @@ export default function TrainingRegisterDetail() {
       </div>
 
       {/* Delete confirmation modal */}
-      {showDeleteModal && (
+      {showDeleteModal && canDeleteRegister && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
           <div className="bg-card p-6 rounded-2xl shadow-xl border max-w-sm w-full space-y-4">
             <h3 className="text-base font-bold text-foreground">Confirm Deletion</h3>

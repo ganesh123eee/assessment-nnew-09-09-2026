@@ -36,7 +36,17 @@ export default function TrainingRegisterList() {
     isAdmin ||
     isHR ||
     isQM ||
-    currentUser?.roles?.some((r) => ['super_admin', 'hr_admin', 'quality_management'].includes(r)) ||
+    currentUser?.roles?.some((r) => ['super_admin', 'hr_admin', 'quality_management'].includes(r as any)) ||
+    currentUser?.role === 'super_admin' ||
+    currentUser?.role === 'hr_admin' ||
+    currentUser?.role === 'quality_management'
+  );
+
+  const canDeleteRegister = Boolean(
+    isAdmin ||
+    isHR ||
+    isQM ||
+    currentUser?.roles?.some((r) => ['super_admin', 'hr_admin', 'quality_management'].includes(r as any)) ||
     currentUser?.role === 'super_admin' ||
     currentUser?.role === 'hr_admin' ||
     currentUser?.role === 'quality_management'
@@ -65,6 +75,11 @@ export default function TrainingRegisterList() {
   }, []);
 
   const handleDelete = async (reg: TrainingRegister) => {
+    if (!canDeleteRegister) {
+      toast.error('Access Denied: Deleting training registers is restricted to Admin and Quality Team members.');
+      return;
+    }
+
     if (!reg || !reg.id) {
       toast.error('Unable to delete: Register ID is missing');
       return;
@@ -319,8 +334,8 @@ export default function TrainingRegisterList() {
                             </button>
                           )}
 
-                          {/* Delete button */}
-                          {(isAdmin || isHR || isQM || hasPermission('manage_training_registers') || (currentUser && reg.createdBy === currentUser.uid)) && (
+                          {/* Delete button - restricted strictly to Admin and Quality */}
+                          {canDeleteRegister && (
                             <button
                               type="button"
                               onClick={() => setRegisterToDelete(reg)}
@@ -342,7 +357,7 @@ export default function TrainingRegisterList() {
       )}
 
       {/* Delete confirmation modal */}
-      {registerToDelete && (
+      {registerToDelete && canDeleteRegister && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
           <div className="bg-card p-6 rounded-2xl shadow-xl border max-w-sm w-full space-y-4">
             <h3 className="text-base font-bold text-foreground">Confirm Deletion</h3>

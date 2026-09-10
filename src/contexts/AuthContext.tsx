@@ -147,15 +147,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const fetchPermissions = async () => {
-      if (user?.roles && user.roles.length > 0) {
+      const userRolesList = user?.roles && user.roles.length > 0 
+        ? user.roles 
+        : (user?.role ? [user.role] : []);
+
+      if (userRolesList.length > 0) {
         try {
           const roles = await firestoreService.getCollection<RoleDefinition>('roles');
-          const userRoles = roles.filter(r => user.roles.includes(r.id as any));
+          const userRoles = roles.filter(r => userRolesList.includes(r.id as any));
           const allPermissions = new Set<Permission>();
           userRoles.forEach(r => r.permissions.forEach(p => allPermissions.add(p)));
+
+          // Default role fallbacks if roles collection in DB is empty or missing a role
+          if (userRolesList.includes('reviewer' as any)) {
+            allPermissions.add('view_dashboard');
+            allPermissions.add('evaluate_submissions');
+            allPermissions.add('view_my_assessments');
+          }
+          if (userRolesList.includes('quality_management' as any)) {
+            allPermissions.add('view_dashboard');
+            allPermissions.add('manage_templates');
+            allPermissions.add('manage_assignments');
+            allPermissions.add('evaluate_submissions');
+            allPermissions.add('view_reports');
+            allPermissions.add('view_my_assessments');
+            allPermissions.add('manage_training_registers');
+          }
+          if (userRolesList.includes('hr_admin' as any)) {
+            allPermissions.add('view_dashboard');
+            allPermissions.add('manage_templates');
+            allPermissions.add('manage_assignments');
+            allPermissions.add('evaluate_submissions');
+            allPermissions.add('manage_users');
+            allPermissions.add('manage_departments');
+            allPermissions.add('view_reports');
+            allPermissions.add('view_my_assessments');
+            allPermissions.add('manage_training_registers');
+          }
+          if (userRolesList.includes('employee' as any)) {
+            allPermissions.add('view_my_assessments');
+          }
           
           // Super admin always has all permissions
-          if (user.roles.includes('super_admin' as any) || user.email === 'ganesh@symetricsystems.com' || user.email === 'ganesh123eee@gmail.com') {
+          if (userRolesList.includes('super_admin' as any) || user?.email === 'ganesh@symetricsystems.com' || user?.email === 'ganesh123eee@gmail.com') {
             const superAdminPermissions: Permission[] = [
               'view_dashboard', 'manage_templates', 'manage_assignments', 'evaluate_submissions', 
               'manage_users', 'manage_departments', 'view_reports', 'view_audit_logs', 
@@ -179,10 +213,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return permissions.includes(permission);
   };
 
-  const isAdmin = user?.roles?.includes('super_admin') || user?.email === 'ganesh@symetricsystems.com' || user?.email === 'ganesh123eee@gmail.com';
-  const isHR = user?.roles?.includes('hr_admin') || isAdmin;
-  const isQM = user?.roles?.includes('quality_management') || isAdmin;
-  const isReviewer = user?.roles?.includes('reviewer') || isHR || isQM;
+  const userRolesList = user?.roles && user.roles.length > 0 
+    ? user.roles 
+    : (user?.role ? [user.role] : []);
+
+  const isAdmin = userRolesList.includes('super_admin' as any) || user?.email === 'ganesh@symetricsystems.com' || user?.email === 'ganesh123eee@gmail.com';
+  const isHR = userRolesList.includes('hr_admin' as any) || isAdmin;
+  const isQM = userRolesList.includes('quality_management' as any) || isAdmin;
+  const isReviewer = userRolesList.includes('reviewer' as any) || isHR || isQM;
 
   return (
     <AuthContext.Provider value={{ 

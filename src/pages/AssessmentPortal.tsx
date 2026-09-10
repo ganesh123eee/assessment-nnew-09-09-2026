@@ -62,14 +62,22 @@ export default function AssessmentPortal() {
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (started && !submitted && document.visibilityState === 'hidden') {
-        setTabSwitchCount(prev => prev + 1);
+        setTabSwitchCount(prev => {
+          const next = prev + 1;
+          toast.error(`Security Warning: Tab switching is strictly prohibited! (${next} violation${next > 1 ? 's' : ''} recorded)`);
+          return next;
+        });
         setShowWarning(true);
       }
     };
 
     const handleBlur = () => {
       if (started && !submitted) {
-        setTabSwitchCount(prev => prev + 1);
+        setTabSwitchCount(prev => {
+          const next = prev + 1;
+          toast.error(`Security Warning: Assessment window lost focus! (${next} violation${next > 1 ? 's' : ''} recorded)`);
+          return next;
+        });
         setShowWarning(true);
       }
     };
@@ -81,14 +89,67 @@ export default function AssessmentPortal() {
       }
     };
 
+    const handleCopy = (e: ClipboardEvent) => {
+      if (started && !submitted) {
+        e.preventDefault();
+        toast.error('Security Restriction: Copying text is strictly prohibited during the assessment.');
+      }
+    };
+
+    const handleCut = (e: ClipboardEvent) => {
+      if (started && !submitted) {
+        e.preventDefault();
+        toast.error('Security Restriction: Cutting text is strictly prohibited during the assessment.');
+      }
+    };
+
+    const handlePaste = (e: ClipboardEvent) => {
+      if (started && !submitted) {
+        e.preventDefault();
+        toast.error('Security Restriction: Pasting text is strictly prohibited. Please type your answers manually.');
+      }
+    };
+
+    const handleContextMenu = (e: MouseEvent) => {
+      if (started && !submitted) {
+        e.preventDefault();
+        toast.error('Security Restriction: Right-click context menu is disabled during the assessment.');
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (started && !submitted) {
+        const isModifier = e.ctrlKey || e.metaKey;
+        const key = e.key.toLowerCase();
+        if (isModifier && (key === 'c' || key === 'v' || key === 'x')) {
+          e.preventDefault();
+          toast.error('Keyboard shortcuts for Copy, Paste, and Cut are disabled during this assessment.');
+        }
+        if ((e.shiftKey && e.key === 'Insert') || (e.ctrlKey && e.key === 'Insert')) {
+          e.preventDefault();
+          toast.error('Pasting or copying via keyboard is prohibited.');
+        }
+      }
+    };
+
     window.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('blur', handleBlur);
     window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('copy', handleCopy);
+    window.addEventListener('cut', handleCut);
+    window.addEventListener('paste', handlePaste);
+    window.addEventListener('contextmenu', handleContextMenu);
+    window.addEventListener('keydown', handleKeyDown);
 
     return () => {
       window.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleBlur);
       window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('copy', handleCopy);
+      window.removeEventListener('cut', handleCut);
+      window.removeEventListener('paste', handlePaste);
+      window.removeEventListener('contextmenu', handleContextMenu);
+      window.removeEventListener('keydown', handleKeyDown);
     };
   }, [started, submitted]);
 
@@ -698,12 +759,38 @@ export default function AssessmentPortal() {
               )}
 
               {(question.type === 'short_answer' || question.type === 'descriptive') && (
-                <textarea
-                  value={answers[question.id] || ''}
-                  onChange={(e) => setAnswers({...answers, [question.id]: e.target.value})}
-                  placeholder="Type your answer here..."
-                  className="w-full p-6 bg-slate-50 border-2 border-slate-100 rounded-3xl outline-none focus:border-primary focus:bg-white transition-all min-h-[200px] text-lg"
-                />
+                <div className="space-y-2">
+                  <textarea
+                    value={answers[question.id] || ''}
+                    onChange={(e) => setAnswers({...answers, [question.id]: e.target.value})}
+                    placeholder="Type your answer here..."
+                    spellCheck={true}
+                    autoCorrect="on"
+                    autoCapitalize="sentences"
+                    autoComplete="on"
+                    onCopy={(e) => {
+                      e.preventDefault();
+                      toast.error('Copying text is restricted during this assessment.');
+                    }}
+                    onCut={(e) => {
+                      e.preventDefault();
+                      toast.error('Cutting text is restricted during this assessment.');
+                    }}
+                    onPaste={(e) => {
+                      e.preventDefault();
+                      toast.error('Pasting text is restricted. Please type your response manually.');
+                    }}
+                    className="w-full p-6 bg-slate-50 border-2 border-slate-100 rounded-3xl outline-none focus:border-primary focus:bg-white transition-all min-h-[200px] text-lg"
+                  />
+                  <div className="flex items-center justify-between text-xs text-muted-foreground px-2">
+                    <span className="flex items-center gap-1 text-emerald-600 font-medium">
+                      ✓ Sentence auto-correct & spellcheck enabled
+                    </span>
+                    <span className="text-rose-500 font-medium">
+                      Copy / Paste restricted
+                    </span>
+                  </div>
+                </div>
               )}
 
               {question.type === 'true_false' && (

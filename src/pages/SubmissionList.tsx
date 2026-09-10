@@ -7,7 +7,7 @@ import { formatDateTime, formatDate, cn, formatId } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function SubmissionList() {
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, isAdmin, isHR, isQM, isReviewer } = useAuth();
   const location = useLocation();
   const [tasks, setTasks] = useState<any[]>([]);
   const [filteredTasks, setFilteredTasks] = useState<any[]>([]);
@@ -16,6 +16,22 @@ export default function SubmissionList() {
   const [statusFilter, setStatusFilter] = useState<string>(location.state?.filter || 'all');
 
   const [departments, setDepartments] = useState<any[]>([]);
+
+  const userRoles = currentUser?.roles && currentUser.roles.length > 0 
+    ? currentUser.roles 
+    : (currentUser?.role ? [currentUser.role] : []);
+
+  const hasAdminOrQualityRole = 
+    isAdmin || 
+    isHR || 
+    isQM || 
+    userRoles.some(r => ['super_admin', 'hr_admin', 'quality_management'].includes(r as any));
+
+  const isReviewerRole = 
+    isReviewer || 
+    userRoles.includes('reviewer' as any);
+
+  const isEmployeeOnlyRole = !hasAdminOrQualityRole && !isReviewerRole;
 
   useEffect(() => {
     const loadData = async () => {
@@ -33,18 +49,26 @@ export default function SubmissionList() {
 
       setDepartments(depts);
 
-      // Determine which assignments to track
+      // Determine which assignments to track based on role
       let visibleAssigns = allAssigns;
       
-      // Role-based visibility
-      if (currentUser?.role === 'employee') {
+      // Admin role and Quality role see all employee submissions
+      if (hasAdminOrQualityRole) {
+        visibleAssigns = allAssigns;
+      } else if (isReviewerRole) {
+        // Reviewer role only sees assessments where they were assigned as the reviewer
+        visibleAssigns = allAssigns.filter(a => 
+          a.reviewerId === currentUser?.uid || 
+          a.reviewerId === currentUser?.email || 
+          a.reviewerId === currentUser?.id
+        );
+      } else if (isEmployeeOnlyRole) {
+        // Employee role only sees assessments assigned to them
         visibleAssigns = allAssigns.filter(a => {
-          if (a.type === 'individual') return a.targetIds.includes(currentUser.uid);
-          if (a.type === 'department') return a.targetIds.includes(currentUser.departmentId || '');
+          if (a.type === 'individual') return a.targetIds?.includes(currentUser?.uid || '') || a.targetIds?.includes(currentUser?.email || '');
+          if (a.type === 'department') return a.targetIds?.includes(currentUser?.departmentId || '');
           return false;
         });
-      } else if (currentUser?.role !== 'super_admin' && currentUser?.role !== 'hr_admin') {
-        visibleAssigns = allAssigns.filter(a => a.reviewerId === currentUser?.uid);
       }
 
       const now = new Date();
@@ -59,20 +83,25 @@ export default function SubmissionList() {
         // Get target user IDs
         let targetUids: string[] = [];
         if (a.type === 'individual') {
-          targetUids = a.targetIds;
+          targetUids = a.targetIds || [];
         } else if (a.type === 'department') {
-          targetUids = users.filter(u => u.departmentId && a.targetIds.includes(u.departmentId)).map(u => u.uid);
+          targetUids = users.filter(u => u.departmentId && a.targetIds?.includes(u.departmentId)).map(u => u.uid || u.email || u.id);
         }
 
-        // Filter targetUids for employee role
-        if (currentUser?.role === 'employee') {
-          targetUids = targetUids.filter(uid => uid === currentUser.uid);
+        // Filter targetUids only if purely employee role
+        if (isEmployeeOnlyRole) {
+          targetUids = targetUids.filter(uid => uid === currentUser?.uid || uid === currentUser?.email);
         }
+
+        const reviewerUser = users.find(u => u.uid === a.reviewerId || u.email === a.reviewerId || u.id === a.reviewerId);
+        const reviewerName = reviewerUser?.displayName || a.reviewerId || 'Unassigned';
+        const isAssignedReviewer = a.reviewerId === currentUser?.uid || a.reviewerId === currentUser?.email || a.reviewerId === currentUser?.id;
+        const canEvaluate = hasAdminOrQualityRole || isAssignedReviewer;
 
         targetUids.forEach(uid => {
-          const employee = users.find(u => u.uid === uid);
+          const employee = users.find(u => u.uid === uid || u.email === uid || u.id === uid);
           const dept = depts.find(d => d.id === employee?.departmentId);
-          const submission = subs.find(s => s.employeeId === uid && s.assignmentId === a.id);
+          const submission = subs.find(s => (s.employeeId === uid || s.employeeId === employee?.email || s.employeeId === employee?.uid) && s.assignmentId === a.id);
           const evaluation = submission ? evals.find(e => e.submissionId === submission.id) : undefined;
 
           let status = 'pending';
@@ -101,9 +130,12 @@ export default function SubmissionList() {
             evaluation,
             status,
             submittedAt: submission?.submittedAt || null,
-            employeeName: employee?.displayName || 'Unknown',
+            employeeName: employee?.displayName || employee?.email || 'Unknown',
             templateName: template?.name || 'Unknown',
-            departmentName: dept?.name || employee?.departmentId || 'N/A'
+            departmentName: dept?.name || employee?.departmentId || 'N/A',
+            reviewerName,
+            isAssignedReviewer,
+            canEvaluate
           });
         });
       });
@@ -272,6 +304,7 @@ export default function SubmissionList() {
                 <th className="px-6 py-4 font-semibold">S.No</th>
                 <th className="px-6 py-4 font-semibold">Employee</th>
                 <th className="px-6 py-4 font-semibold">Assessment</th>
+                <th className="px-6 py-4 font-semibold">Assigned Reviewer</th>
                 <th className="px-6 py-4 font-semibold">Submission/Due</th>
                 <th className="px-6 py-4 font-semibold">Status</th>
                 <th className="px-6 py-4 font-semibold">Action</th>
@@ -297,6 +330,14 @@ export default function SubmissionList() {
                   <td className="px-6 py-4">
                     <p className="text-sm font-medium">{task.templateName}</p>
                     <p className="text-xs text-muted-foreground">{task.template?.skillCategory}</p>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 bg-primary/10 rounded-full flex items-center justify-center text-[9px] font-bold text-primary">
+                        {task.reviewerName.charAt(0).toUpperCase()}
+                      </div>
+                      <span className="text-xs font-medium text-foreground">{task.reviewerName}</span>
+                    </div>
                   </td>
                   <td className="px-6 py-4 text-sm text-muted-foreground">
                     {task.submittedAt ? (
@@ -329,10 +370,22 @@ export default function SubmissionList() {
                     {task.submission ? (
                       <Link 
                         to={`/evaluate/${task.submission.id}`}
-                        className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-bold hover:opacity-90 transition-all"
+                        className={cn(
+                          "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all w-fit",
+                          task.status === 'completed'
+                            ? "bg-muted hover:bg-accent text-foreground border"
+                            : task.canEvaluate
+                              ? "bg-primary text-primary-foreground hover:opacity-90 shadow-sm"
+                              : "bg-muted text-muted-foreground hover:bg-accent border cursor-pointer"
+                        )}
+                        title={
+                          !task.canEvaluate && task.status !== 'completed'
+                            ? `Only assigned reviewer (${task.reviewerName}) or Admin/Quality can evaluate`
+                            : undefined
+                        }
                       >
                         <Eye className="w-3.5 h-3.5" />
-                        <span>{task.status === 'completed' ? 'View' : 'Evaluate'}</span>
+                        <span>{task.status === 'completed' ? 'View' : (task.canEvaluate ? 'Evaluate' : 'View (Read Only)')}</span>
                       </Link>
                     ) : (
                       <span className="text-xs text-muted-foreground italic">No submission</span>
@@ -343,8 +396,10 @@ export default function SubmissionList() {
 
               {filteredTasks.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-20 text-center text-muted-foreground">
-                    No matching records found.
+                  <td colSpan={7} className="px-6 py-20 text-center text-muted-foreground">
+                    {isReviewerRole && !hasAdminOrQualityRole 
+                      ? 'No assessments currently assigned to you for review.' 
+                      : 'No matching records found.'}
                   </td>
                 </tr>
               )}

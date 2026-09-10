@@ -692,7 +692,7 @@ export default function AssignmentForm() {
                     onChange={e => setFormData({...formData, randomizeQuestions: e.target.checked})}
                     className="rounded border-muted text-primary focus:ring-primary"
                   />
-                  <span className="text-sm font-medium group-hover:text-primary transition-colors">Randomize Questions</span>
+                  <span className="text-sm font-medium group-hover:text-primary transition-colors">Shuffle questions</span>
                 </label>
                 <label className="flex items-center gap-3 cursor-pointer group">
                   <input 

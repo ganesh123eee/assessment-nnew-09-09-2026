@@ -97,7 +97,7 @@ const Sidebar = () => {
           </>
         )}
 
-        {hasPermission('evaluate_submissions') && (
+        {(hasPermission('evaluate_submissions') || isReviewer || isQM || isAdmin || isHR) && (
           <>
             <div className="pt-4 pb-2 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Evaluation</div>
             <SidebarItem to="/submissions" icon={CheckSquare} label="Submissions" active={location.pathname.startsWith("/submissions")} />

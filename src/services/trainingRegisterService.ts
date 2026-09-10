@@ -363,7 +363,7 @@ export const trainingRegisterService = {
     const { nextY } = await drawPdfBrandingHeader(doc, branding, {
       margin,
       topY: 10,
-      rightHeaderText: 'Training Register Template',
+      rightHeaderText: '',
       showDivider: true
     });
 

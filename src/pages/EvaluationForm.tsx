@@ -13,7 +13,8 @@ import {
   ChevronRight,
   Info,
   Download,
-  FileText
+  FileText,
+  ShieldAlert
 } from 'lucide-react';
 import { firestoreService } from '../services/firestoreService';
 import { Submission, Template, Evaluation, User, Question, Assignment, Department } from '../types';
@@ -23,13 +24,16 @@ import { useAuth } from '../contexts/AuthContext';
 export default function EvaluationForm() {
   const { submissionId } = useParams();
   const navigate = useNavigate();
-  const { user: reviewer } = useAuth();
+  const { user: reviewer, isAdmin, isHR, isQM } = useAuth();
   
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submission, setSubmission] = useState<Submission | null>(null);
+  const [assignment, setAssignment] = useState<Assignment | null>(null);
   const [template, setTemplate] = useState<Template | null>(null);
   const [employee, setEmployee] = useState<User | null>(null);
+  const [assignedReviewerName, setAssignedReviewerName] = useState<string>('');
+  const [canEvaluate, setCanEvaluate] = useState<boolean>(true);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [isReadOnly, setIsReadOnly] = useState(false);
   
@@ -43,6 +47,16 @@ export default function EvaluationForm() {
     retestRequired: false
   });
 
+  const reviewerRoles = reviewer?.roles && reviewer.roles.length > 0
+    ? reviewer.roles
+    : (reviewer?.role ? [reviewer.role] : []);
+
+  const hasAdminOrQualityRole = 
+    isAdmin || 
+    isHR || 
+    isQM || 
+    reviewerRoles.some(r => ['super_admin', 'hr_admin', 'quality_management'].includes(r as any));
+
   useEffect(() => {
     const loadData = async () => {
       if (!submissionId) return;
@@ -53,17 +67,34 @@ export default function EvaluationForm() {
       const sub = await firestoreService.getDocument<Submission>('submissions', submissionId);
       if (sub) {
         setSubmission(sub);
-        if (sub.status === 'completed') {
-          setIsReadOnly(true);
-        }
 
         const assign = await firestoreService.getDocument<Assignment>('assignments', sub.assignmentId);
-        const [temp, emp, existingEval, depts] = await Promise.all([
+        setAssignment(assign);
+
+        const [temp, emp, existingEval, depts, allUsers] = await Promise.all([
           firestoreService.getDocument<Template>('templates', assign.templateId),
           firestoreService.getDocument<User>('users', sub.employeeId),
           firestoreService.getCollection<Evaluation>('reviews', []),
-          firestoreService.getCollection<Department>('departments')
+          firestoreService.getCollection<Department>('departments'),
+          firestoreService.getCollection<User>('users', [])
         ]);
+
+        const revUser = allUsers.find(u => u.uid === assign.reviewerId || u.email === assign.reviewerId || u.id === assign.reviewerId);
+        const revDisplayName = revUser?.displayName || assign.reviewerId || 'Not specified';
+        setAssignedReviewerName(revDisplayName);
+
+        // Determine if current user is allowed to evaluate
+        const isAssigned = 
+          assign.reviewerId === reviewer?.uid || 
+          assign.reviewerId === reviewer?.email || 
+          assign.reviewerId === reviewer?.id;
+
+        const allowed = hasAdminOrQualityRole || isAssigned;
+        setCanEvaluate(allowed);
+
+        if (sub.status === 'completed' || !allowed) {
+          setIsReadOnly(true);
+        }
         
         setDepartments(depts);
         
@@ -80,9 +111,10 @@ export default function EvaluationForm() {
       setLoading(false);
     };
     loadData();
-  }, [submissionId]);
+  }, [submissionId, reviewer]);
 
   const handleScoreChange = (qId: string, isCorrect: boolean) => {
+    if (isReadOnly || !canEvaluate) return;
     setEvaluation(prev => {
       const newScores = { ...prev.questionScores, [qId]: isCorrect ? 1 : 0 };
       const correctCount = Object.values(newScores).filter(v => v === 1).length;
@@ -115,6 +147,11 @@ export default function EvaluationForm() {
   };
 
   const handleSubmit = async () => {
+    if (!canEvaluate) {
+      toast.error(`Unauthorized: Only the assigned reviewer (${assignedReviewerName}) or an Administrator / Quality Manager is allowed to evaluate this assignment.`);
+      return;
+    }
+
     setSubmitting(true);
     try {
       const finalScore = calculatePercentage();
@@ -222,14 +259,32 @@ export default function EvaluationForm() {
           </div>
           <button 
             onClick={handleSubmit}
-            disabled={submitting || isReadOnly}
+            disabled={submitting || isReadOnly || !canEvaluate}
             className="flex items-center gap-2 px-8 py-3 bg-primary text-primary-foreground rounded-2xl font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-all disabled:opacity-50"
           >
             {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
-            <span>{isReadOnly ? 'Review Completed' : 'Submit Review'}</span>
+            <span>
+              {submission?.status === 'completed' 
+                ? 'Review Completed' 
+                : !canEvaluate 
+                  ? 'Evaluation Restricted' 
+                  : 'Submit Review'}
+            </span>
           </button>
         </div>
       </div>
+
+      {!canEvaluate && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start sm:items-center gap-3 text-amber-900 shadow-sm">
+          <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5 sm:mt-0" />
+          <div className="text-sm">
+            <p className="font-bold">Evaluation Restricted — View Only Mode</p>
+            <p className="text-xs text-amber-800">
+              This assessment is designated to reviewer <strong>{assignedReviewerName}</strong>. You are in read-only mode because only the assigned reviewer or an Administrator / Quality Manager can evaluate and submit scores.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Questions & Answers */}
