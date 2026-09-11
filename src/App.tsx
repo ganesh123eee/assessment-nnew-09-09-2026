@@ -38,6 +38,7 @@ import RoleManagement from './pages/RoleManagement';
 import DepartmentManagement from './pages/DepartmentManagement';
 import AuditLogs from './pages/AuditLogs';
 import Reports from './pages/Reports';
+import { BrandLogo } from './components/BrandLogo';
 import MyAssessments from './pages/MyAssessments';
 import BrandingSettings from './pages/BrandingSettings';
 import TrainingRegisterList from './pages/TrainingRegisterList';
@@ -68,15 +69,13 @@ const Sidebar = () => {
 
   return (
     <div className="flex flex-col w-64 h-screen border-r bg-card text-card-foreground">
-      <div className="p-6 flex items-center gap-2">
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden">
-          {branding.logoUrl ? (
-            <img src={branding.logoUrl} alt="Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-          ) : (
-            <ShieldCheck className="text-primary-foreground w-5 h-5" />
-          )}
-        </div>
-        <span className="text-xl font-bold tracking-tight truncate">{branding.appName}</span>
+      <div className="p-5 flex items-center gap-3 border-b bg-card">
+        <BrandLogo 
+          size="md" 
+          showAppName 
+          appNameClassName="text-lg font-bold tracking-tight"
+          companyNameClassName="text-[10px]"
+        />
       </div>
 
       <nav className="flex-1 px-4 space-y-1 overflow-y-auto">
@@ -306,23 +305,6 @@ const MainLayout = ({ children }: { children: React.ReactNode }) => (
 );
 
 export default function App() {
-  const { user, branding } = useAuth();
-
-  // One-time migration to set the new transparent logo if it's currently empty
-  useEffect(() => {
-    if (user && !branding.logoUrl) {
-      const updateLogo = async () => {
-        try {
-          await firestoreService.updateDocument('settings', 'branding', { logoUrl: '/logo.svg' });
-          console.log('Logo updated to transparent version');
-        } catch (error) {
-          console.error('Failed to update logo:', error);
-        }
-      };
-      updateLogo();
-    }
-  }, [user, branding.logoUrl]);
-
   return (
     <>
       <Toaster position="top-right" richColors />

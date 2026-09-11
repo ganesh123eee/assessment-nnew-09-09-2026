@@ -1,7 +1,53 @@
-<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <path d="M15 10C25 10 30 25 40 25C50 25 55 10 65 10" stroke="#1e40af" stroke-width="5" stroke-linecap="round"/>
-  <path d="M-5 25C5 25 10 40 20 40C30 40 35 25 45 25" stroke="#1e40af" stroke-width="5" stroke-linecap="round"/>
-  <path d="M10 15C10 25 25 30 25 40C25 50 10 55 10 65" stroke="#84cc16" stroke-width="5" stroke-linecap="round"/>
-  <path d="M25 -5C25 5 40 10 40 20C40 30 25 35 25 45" stroke="#84cc16" stroke-width="5" stroke-linecap="round"/>
-  <path d="M40 15C40 25 55 30 55 40C55 50 40 55 40 65" stroke="#1e40af" stroke-width="5" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" fill="none">
+  <defs>
+    <linearGradient id="ap_bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="ap_accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="ap_shield" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="ap_check" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f0fdf4"/>
+    </linearGradient>
+    <linearGradient id="ap_glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#0f172a" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="ap_shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <!-- Base Rounded Squircle with Subtle Rim -->
+  <rect x="6" y="6" width="116" height="116" rx="28" fill="url(#ap_bg)"/>
+  <rect x="6" y="6" width="116" height="116" rx="28" stroke="url(#ap_accent)" stroke-width="2.5" stroke-opacity="0.8"/>
+  
+  <!-- Ambient Inner Glow -->
+  <circle cx="40" cy="36" r="44" fill="url(#ap_glow)"/>
+
+  <!-- Assessment Shield Emblem -->
+  <g filter="url(#ap_shadow)">
+    <path d="M64 24 C84 24 96 30 96 30 C96 68 76 89 64 99 C52 89 32 68 32 30 C32 30 44 24 64 24 Z" 
+          fill="url(#ap_shield)" 
+          stroke="#60a5fa" 
+          stroke-width="2" 
+          stroke-linejoin="round"/>
+
+    <!-- Inner Certification Checkmark & Ribbon Fold -->
+    <path d="M47 59 L59 71 L81 47" 
+          stroke="url(#ap_check)" 
+          stroke-width="7.5" 
+          stroke-linecap="round" 
+          stroke-linejoin="round"/>
+          
+    <!-- Performance Star Dot -->
+    <circle cx="64" cy="38" r="3.5" fill="#38bdf8"/>
+  </g>
 </svg>

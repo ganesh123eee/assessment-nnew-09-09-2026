@@ -27,6 +27,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Assignment, Template, Submission, Evaluation, User as UserType, Department } from '../types';
 import { formatDate, formatDateTime, formatSignatureDate, cn, formatId } from '../lib/utils';
 import { drawPdfBrandingHeader } from '../utils/pdfBranding';
+import { BrandLogo } from '../components/BrandLogo';
 
 type TabType = 'active' | 'results' | 'reports'; // Keeping for type safety if needed elsewhere, but activeTab is removed
 
@@ -666,14 +667,7 @@ export default function MyAssessments() {
           <div className="bg-card w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
             <div className="p-6 border-b flex items-center justify-between bg-muted/30">
               <div className="flex items-center gap-4">
-                {branding.logoUrl && (
-                  <img 
-                    src={branding.logoUrl} 
-                    alt="Logo" 
-                    className="h-10 w-auto object-contain"
-                    referrerPolicy="no-referrer"
-                  />
-                )}
+                <BrandLogo size="md" />
                 <div>
                   <h2 className="text-xl font-bold">{selectedResult.template?.name || 'Assessment Details'}</h2>
                   <p className="text-xs text-muted-foreground">Submitted on {formatDateTime(selectedResult.submission.submittedAt)}</p>

@@ -28,6 +28,7 @@ import * as XLSX from 'xlsx';
 import { useAuth } from '../contexts/AuthContext';
 import { firestoreService, where } from '../services/firestoreService';
 import { Submission, Evaluation, Template, Assignment, User as UserType, Department, TrainingRegister } from '../types';
+import { BrandLogo } from '../components/BrandLogo';
 import { drawPdfBrandingHeader } from '../utils/pdfBranding';
 
 export default function Reports() {
@@ -729,14 +730,14 @@ export default function Reports() {
   ) => {
     setSummaryLoading(true);
     try {
-      const [allUsers, depts, temps, assigns, subs, evals, regList] = await Promise.all([
+      // Exclusively query assessment records; ignore training registers
+      const [allUsers, depts, temps, assigns, subs, evals] = await Promise.all([
         overrideUsers ? Promise.resolve(overrideUsers) : firestoreService.getCollection<UserType>('users'),
         overrideDepts ? Promise.resolve(overrideDepts) : firestoreService.getCollection<Department>('departments'),
         overrideTemps ? Promise.resolve(overrideTemps) : firestoreService.getCollection<Template>('templates'),
         firestoreService.getCollection<Assignment>('assignments'),
         firestoreService.getCollection<Submission>('submissions'),
-        firestoreService.getCollection<Evaluation>('reviews'),
-        firestoreService.getCollection<TrainingRegister>('training_registers')
+        firestoreService.getCollection<Evaluation>('reviews')
       ]);
 
       const selectedUser = summaryUserId !== 'all' ? allUsers.find(u => u.uid === summaryUserId) : null;
@@ -791,7 +792,7 @@ export default function Reports() {
       let totalPending = 0;
 
       for (const u of targetUsers) {
-        // 1. Process Assessment Assignments
+        // Exclusively process Assessment Assignments for this employee
         const userAssigns = assigns.filter(a => {
           if (a.type === 'individual' && a.targetIds?.includes(u.uid)) return true;
           if (a.type === 'department' && u.departmentId && a.targetIds?.includes(u.departmentId)) return true;
@@ -853,46 +854,6 @@ export default function Reports() {
             employeeName: u.displayName
           });
         }
-
-        // 2. Process Training Registers
-        for (const reg of regList) {
-          const attendee = reg.attendees?.find(
-            att => (att.employeeId && (att.employeeId === u.uid || att.employeeId === u.employeeId)) ||
-                   (att.email && att.email.toLowerCase().trim() === u.email?.toLowerCase().trim())
-          );
-
-          if (attendee) {
-            if (!isDateInRange(reg.date || reg.createdAt)) continue;
-
-            totalAssigned++;
-            const isSigned = attendee.status === 'signed' || Boolean(attendee.signatureData);
-            let status: 'Pass' | 'Fail' | 'Pending Review' | 'In Progress' | 'Not Started' = 'Not Started';
-
-            if (isSigned) {
-              status = 'Pass';
-              totalPass++;
-              totalCompleted++;
-            } else if (reg.workflowStatus === 'in_progress') {
-              status = 'In Progress';
-              totalPending++;
-            } else {
-              status = 'Not Started';
-              totalPending++;
-            }
-
-            items.push({
-              sNo: items.length + 1,
-              title: reg.trainingTitle || 'Training Register Session',
-              type: 'Training Register',
-              assignedDate: reg.date || formatDate(reg.createdAt),
-              completedDate: isSigned ? (attendee.signedDate || formatDate(attendee.signedAt || reg.date)) : '-',
-              score: isSigned ? 'Completed' : '-',
-              status,
-              reviewer: reg.trainerName || 'Trainer',
-              employeeName: u.displayName
-            });
-          }
-        }
       }
 
       const passRate = totalCompleted > 0 ? ((totalPass / totalCompleted) * 100).toFixed(1) : '0';
@@ -910,7 +871,7 @@ export default function Reports() {
         passRate,
         items
       });
-      await firestoreService.logActivity('Generated Summary Report', 'Reports', { userId: summaryUserId, dateRange: summaryDateRange }, currentUser?.uid, currentUser?.email);
+      firestoreService.logActivity('Generated Summary Report', 'Reports', { userId: summaryUserId, dateRange: summaryDateRange }, currentUser?.uid, currentUser?.email).catch(console.error);
     } catch (err) {
       console.error('Failed to generate summary report:', err);
       toast.error('Failed to load user summary report.');
@@ -921,13 +882,13 @@ export default function Reports() {
 
   const handleExportSummary = async (format: 'pdf' | 'excel') => {
     if (!summaryReportData) {
-      toast.error('No summary data to export. Please run search first.');
+      toast.error('Please search and view report first.');
       return;
     }
     setExporting(true);
     try {
-      const filename = `User_Summary_${summaryReportData.userName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}`;
-      const headers = ['S.No', 'Training / Assessment Title', 'Type', 'Assigned Date', 'Completed Date', 'Score', 'Result / Status', 'Trainer / Reviewer'];
+      const filename = `User_Assessment_Summary_${summaryReportData.userName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}`;
+      const headers = ['S.No', 'Assessment Title', 'Type', 'Assigned Date', 'Completed Date', 'Score', 'Result / Status', 'Assigned Reviewer'];
       const rows = summaryReportData.items.map(item => [
         item.sNo,
         item.title,
@@ -942,14 +903,14 @@ export default function Reports() {
       if (format === 'excel') {
         const wsData = [
           [branding.companyName || branding.appName],
-          ['User Training & Assessment Performance Summary Report'],
+          ['User Assessment Performance Summary Report'],
           [`Employee: ${summaryReportData.userName} (ID: ${summaryReportData.employeeId})`],
           [`Department: ${summaryReportData.departmentName} | Email: ${summaryReportData.email}`],
           [`Generated on: ${formatDateTime(new Date())}`],
           [],
           ['METRICS SUMMARY'],
-          ['Total Assigned', summaryReportData.totalAssigned],
-          ['Total Completed', summaryReportData.totalCompleted],
+          ['Total Assessments Assigned', summaryReportData.totalAssigned],
+          ['Total Assessments Completed', summaryReportData.totalCompleted],
           ['Total Passed', summaryReportData.totalPass],
           ['Total Failed', summaryReportData.totalFail],
           ['Total Pending', summaryReportData.totalPending],
@@ -968,14 +929,14 @@ export default function Reports() {
         const { nextY } = await drawPdfBrandingHeader(doc, branding, {
           margin: 14,
           topY: 10,
-          rightHeaderText: 'User Training Summary Report',
+          rightHeaderText: 'User Assessment Summary Report',
           showDivider: true
         });
 
         doc.setFontSize(13);
         doc.setTextColor(branding.primaryColor || '#0f172a');
         doc.setFont('helvetica', 'bold');
-        doc.text('User Training Performance Summary', 14, nextY + 3);
+        doc.text('User Assessment Performance Summary', 14, nextY + 3);
 
         doc.setFontSize(8.5);
         doc.setFont('helvetica', 'normal');
@@ -1032,25 +993,18 @@ export default function Reports() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Reporting & Analytics</h1>
           <p className="text-muted-foreground mt-1">Generate and download detailed performance reports for audits and management.</p>
         </div>
-        {branding.logoUrl && (
-          <div className="flex items-center gap-4 bg-card p-4 rounded-2xl border shadow-sm">
-            <img 
-              src={branding.logoUrl} 
-              alt="Company Logo" 
-              className="h-12 w-auto object-contain"
-              referrerPolicy="no-referrer"
-            />
-            <div className="text-right">
-              <p className="text-sm font-bold text-primary">{branding.companyName || branding.appName}</p>
-              <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Official Report Portal</p>
-            </div>
+        <div className="flex items-center gap-4 bg-card p-3 sm:p-4 rounded-2xl border shadow-sm shrink-0">
+          <BrandLogo size="lg" />
+          <div className="text-right">
+            <p className="text-sm font-bold text-primary">{branding.companyName || branding.appName}</p>
+            <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Official Report Portal</p>
           </div>
-        )}
+        </div>
       </div>
 
       {/* Navigation Tabs */}
@@ -1094,34 +1048,52 @@ export default function Reports() {
                   User Training Performance Summary
                 </h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Select an employee and date range to view training assigned, completed, passed, failed, and pending status.
+                  Assessment records only. Search and click <strong className="text-foreground">View Report</strong> to review before selecting download format.
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button 
                   onClick={() => handleGenerateSummaryReport()}
                   disabled={summaryLoading}
-                  className="px-4 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-bold hover:opacity-90 transition-all flex items-center gap-2 shadow-sm disabled:opacity-50"
+                  className="px-3.5 py-2 bg-muted/80 text-foreground border rounded-lg text-xs sm:text-sm font-bold hover:bg-muted transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                  title="Search employee assessment records"
                 >
-                  {summaryLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                  <span>Search Report</span>
+                  <Search className="w-4 h-4 text-primary" />
+                  <span>Search</span>
                 </button>
                 <button 
-                  onClick={() => handleExportSummary('excel')}
-                  disabled={!summaryReportData || summaryLoading}
-                  className="px-4 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-bold hover:bg-emerald-700 transition-all flex items-center gap-2 shadow-sm disabled:opacity-50"
+                  onClick={() => handleGenerateSummaryReport()}
+                  disabled={summaryLoading}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-xs sm:text-sm font-bold hover:opacity-90 transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                  title="View report details"
                 >
-                  <FileSpreadsheet className="w-4 h-4" />
-                  <span>Excel</span>
+                  {summaryLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
+                  <span>View Report</span>
                 </button>
-                <button 
-                  onClick={() => handleExportSummary('pdf')}
-                  disabled={!summaryReportData || summaryLoading}
-                  className="px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-all flex items-center gap-2 shadow-sm disabled:opacity-50"
-                >
-                  <FileText className="w-4 h-4" />
-                  <span>PDF</span>
-                </button>
+                
+                <div className="h-6 w-px bg-border hidden sm:block mx-1" />
+                
+                <div className="flex items-center gap-1.5 bg-muted/40 p-1 rounded-lg border">
+                  <span className="text-[11px] font-bold uppercase text-muted-foreground px-1.5 hidden md:inline">Download:</span>
+                  <button 
+                    onClick={() => handleExportSummary('excel')}
+                    disabled={!summaryReportData || summaryLoading}
+                    className="px-3 py-1.5 bg-emerald-600 text-white rounded-md text-xs font-bold hover:bg-emerald-700 transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                    title={summaryReportData ? "Download Excel format" : "Search and click View Report first"}
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    <span>Excel</span>
+                  </button>
+                  <button 
+                    onClick={() => handleExportSummary('pdf')}
+                    disabled={!summaryReportData || summaryLoading}
+                    className="px-3 py-1.5 bg-blue-600 text-white rounded-md text-xs font-bold hover:bg-blue-700 transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                    title={summaryReportData ? "Download PDF format" : "Search and click View Report first"}
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>PDF</span>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1249,7 +1221,7 @@ export default function Reports() {
                     <span className="text-2xl lg:text-3xl font-extrabold text-blue-950 font-mono">
                       {summaryReportData.totalAssigned}
                     </span>
-                    <p className="text-[11px] text-blue-700/80 mt-0.5">Trainings & assessments</p>
+                    <p className="text-[11px] text-blue-700/80 mt-0.5">Assigned assessments</p>
                   </div>
                 </div>
 
@@ -1265,7 +1237,7 @@ export default function Reports() {
                     <span className="text-2xl lg:text-3xl font-extrabold text-emerald-950 font-mono">
                       {summaryReportData.totalCompleted}
                     </span>
-                    <p className="text-[11px] text-emerald-700/80 mt-0.5">Finished sessions</p>
+                    <p className="text-[11px] text-emerald-700/80 mt-0.5">Completed assessments</p>
                   </div>
                 </div>
 
@@ -1313,7 +1285,7 @@ export default function Reports() {
                     <span className="text-2xl lg:text-3xl font-extrabold text-amber-950 font-mono">
                       {summaryReportData.totalPending}
                     </span>
-                    <p className="text-[11px] text-amber-700/80 mt-0.5">Incomplete / in review</p>
+                    <p className="text-[11px] text-amber-700/80 mt-0.5">In review / progress</p>
                   </div>
                 </div>
               </div>
@@ -1323,7 +1295,7 @@ export default function Reports() {
                 <div className="p-5 border-b bg-muted/20 flex items-center justify-between">
                   <h4 className="font-bold text-base text-foreground flex items-center gap-2">
                     <ClipboardList className="w-4 h-4 text-primary" />
-                    Training & Assessment Records
+                    Employee Assessment Records
                     <span className="text-xs font-normal text-muted-foreground px-2 py-0.5 bg-muted rounded-full">
                       {summaryReportData.items.length} records
                     </span>
@@ -1336,13 +1308,13 @@ export default function Reports() {
                       <tr>
                         <th className="py-3 px-4 w-12 text-center">#</th>
                         {summaryUserId === 'all' && <th className="py-3 px-4">Employee</th>}
-                        <th className="py-3 px-4">Training Title</th>
+                        <th className="py-3 px-4">Assessment Title</th>
                         <th className="py-3 px-4">Type</th>
                         <th className="py-3 px-4">Assigned Date</th>
                         <th className="py-3 px-4">Completed Date</th>
                         <th className="py-3 px-4 text-center">Score</th>
                         <th className="py-3 px-4 text-center">Status</th>
-                        <th className="py-3 px-4">Reviewer / Trainer</th>
+                        <th className="py-3 px-4">Assigned Reviewer</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y text-xs">
@@ -1394,6 +1366,27 @@ export default function Reports() {
                   </table>
                 </div>
               </div>
+            </div>
+          )}
+
+          {!summaryReportData && !summaryLoading && (
+            <div className="bg-card rounded-2xl border border-dashed p-10 text-center space-y-4 shadow-sm">
+              <div className="w-14 h-14 bg-primary/10 text-primary rounded-2xl flex items-center justify-center mx-auto">
+                <Search className="w-7 h-7" />
+              </div>
+              <div className="max-w-md mx-auto space-y-1">
+                <h4 className="font-bold text-base text-foreground">View Assessment Performance Summary</h4>
+                <p className="text-xs text-muted-foreground">
+                  Select an employee filter or date range above, then click <span className="font-semibold text-primary">View Report</span> to generate the assessment report. Once viewed, choose your desired download format (Excel or PDF).
+                </p>
+              </div>
+              <button
+                onClick={() => handleGenerateSummaryReport()}
+                className="px-5 py-2.5 bg-primary text-primary-foreground rounded-xl text-xs font-bold hover:opacity-90 transition-all inline-flex items-center gap-2 shadow-sm"
+              >
+                <Eye className="w-4 h-4" />
+                <span>View Report Now</span>
+              </button>
             </div>
           )}
         </div>
@@ -1522,14 +1515,7 @@ export default function Reports() {
           <div className="bg-card w-full max-w-6xl max-h-[90vh] rounded-2xl border shadow-2xl flex flex-col">
             <div className="p-6 border-b flex items-center justify-between bg-muted/10">
               <div className="flex items-center gap-4">
-                {branding.logoUrl && (
-                  <img 
-                    src={branding.logoUrl} 
-                    alt="Company Logo" 
-                    className="h-12 w-auto object-contain"
-                    referrerPolicy="no-referrer"
-                  />
-                )}
+                <BrandLogo size="lg" />
                 <div>
                   <h3 className="text-xl font-bold">{branding.companyName || branding.appName}</h3>
                   <div className="flex items-center gap-2">
@@ -1625,14 +1611,7 @@ export default function Reports() {
           <div className="bg-card w-full max-w-4xl max-h-[90vh] rounded-2xl border shadow-2xl flex flex-col">
             <div className="p-6 border-b flex items-center justify-between bg-muted/10">
               <div className="flex items-center gap-4">
-                {branding.logoUrl && (
-                  <img 
-                    src={branding.logoUrl} 
-                    alt="Company Logo" 
-                    className="h-12 w-auto object-contain"
-                    referrerPolicy="no-referrer"
-                  />
-                )}
+                <BrandLogo size="lg" />
                 <div>
                   <h3 className="text-xl font-bold">{branding.companyName || branding.appName}</h3>
                   <div className="flex items-center gap-2">

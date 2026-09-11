@@ -3,6 +3,7 @@ import { Save, Image as ImageIcon, Type, Layout, ShieldCheck, Loader2, RotateCcw
 import { firestoreService } from '../services/firestoreService';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
+import { BrandLogo } from '../components/BrandLogo';
 
 interface BrandingSettings {
   appName: string;
@@ -12,49 +13,59 @@ interface BrandingSettings {
 }
 
 export default function BrandingSettings() {
-  const { user } = useAuth();
+  const { user, branding, updateBranding } = useAuth();
   const [settings, setSettings] = useState<BrandingSettings>({
-    appName: 'AssessPro',
-    companyName: '',
-    logoUrl: '',
-    primaryColor: '#0f172a'
+    appName: branding?.appName || 'AssessPro',
+    companyName: branding?.companyName || '',
+    logoUrl: branding?.logoUrl || '',
+    primaryColor: branding?.primaryColor || '#0f172a'
   });
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingLogo, setSavingLogo] = useState(false);
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
-    const loadSettings = async () => {
-      // Log viewing activity
-      await firestoreService.logActivity('Viewed Branding Settings', 'Settings', {}, user?.uid, user?.email);
+    if (branding) {
+      setSettings(prev => ({
+        ...prev,
+        appName: branding.appName || 'AssessPro',
+        companyName: branding.companyName || '',
+        logoUrl: branding.logoUrl || '',
+        primaryColor: branding.primaryColor || '#0f172a'
+      }));
+    }
+  }, [branding]);
 
-      const data = await firestoreService.getDocument<BrandingSettings>('settings', 'branding');
-      if (data) {
-        setSettings({
-          appName: data.appName || 'AssessPro',
-          companyName: data.companyName || '',
-          logoUrl: data.logoUrl || '',
-          primaryColor: data.primaryColor || '#0f172a'
-        });
-      }
-      setLoading(false);
-    };
-    loadSettings();
+  useEffect(() => {
+    // Log viewing activity
+    firestoreService.logActivity('Viewed Branding Settings', 'Settings', {}, user?.uid, user?.email).catch(console.error);
   }, []);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      await firestoreService.createDocument('settings', settings, 'branding');
+      await updateBranding(settings);
       await firestoreService.logActivity('Updated Branding Settings', 'Settings', settings, user?.uid, user?.email);
-      toast.success('Branding settings updated successfully');
-      // Force a reload to apply changes globally
-      window.location.reload();
+      toast.success('Branding settings saved successfully');
     } catch (error) {
       console.error(error);
       toast.error('Failed to update branding settings');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveLogoUrl = async () => {
+    setSavingLogo(true);
+    try {
+      await updateBranding({ logoUrl: settings.logoUrl.trim() });
+      await firestoreService.logActivity('Updated Logo URL', 'Settings', { logoUrl: settings.logoUrl.trim() }, user?.uid, user?.email);
+      toast.success('Logo URL updated and applied successfully');
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to update logo URL');
+    } finally {
+      setSavingLogo(false);
     }
   };
 
@@ -68,7 +79,6 @@ export default function BrandingSettings() {
         await firestoreService.clearTransactionalData();
         await firestoreService.logActivity('Reset System Data', 'Settings', { action: 'Full Transactional Reset' }, user?.uid, user?.email);
         toast.success('System data has been reset successfully.');
-        // Refresh to show zeroed statistics
         window.location.reload();
       } catch (error) {
         console.error(error);
@@ -83,26 +93,80 @@ export default function BrandingSettings() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 1024 * 1024) {
-      toast.error('Logo file size exceeds 1MB limit.');
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error('File size exceeds 8MB limit.');
       return;
     }
 
     setUploading(true);
     const reader = new FileReader();
     reader.onload = (ev) => {
-      setSettings({ ...settings, logoUrl: ev.target?.result as string });
-      setUploading(false);
-      toast.success('Logo uploaded successfully (preview only, save to apply)');
+      const rawDataUrl = ev.target?.result as string;
+      
+      // Auto-compress and scale image using an offscreen canvas to keep document size light & fast
+      const img = new Image();
+      img.onload = async () => {
+        try {
+          const maxDim = 360;
+          let width = img.naturalWidth || img.width;
+          let height = img.naturalHeight || img.height;
+
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          let optimizedDataUrl = rawDataUrl;
+
+          if (ctx) {
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            const pngData = canvas.toDataURL('image/png');
+            if (pngData.length > 200000) {
+              optimizedDataUrl = canvas.toDataURL('image/jpeg', 0.88);
+            } else {
+              optimizedDataUrl = pngData;
+            }
+          }
+
+          // Immediately update state, persist to Firestore and sync via AuthContext
+          setSettings(prev => ({ ...prev, logoUrl: optimizedDataUrl }));
+          await updateBranding({ logoUrl: optimizedDataUrl });
+          await firestoreService.logActivity('Uploaded and updated brand logo', 'Settings', { hasLogo: true }, user?.uid, user?.email);
+          toast.success('Logo uploaded and applied successfully across the app!');
+        } catch (err) {
+          console.error('Failed to save uploaded logo:', err);
+          toast.error('Failed to save uploaded logo');
+        } finally {
+          setUploading(false);
+          if (e.target) e.target.value = '';
+        }
+      };
+      img.onerror = () => {
+        setUploading(false);
+        toast.error('Failed to parse uploaded image');
+        if (e.target) e.target.value = '';
+      };
+      img.src = rawDataUrl;
     };
     reader.onerror = () => {
       setUploading(false);
       toast.error('Failed to read logo file');
+      if (e.target) e.target.value = '';
     };
     reader.readAsDataURL(file);
   };
-
-  if (loading) return <div className="flex items-center justify-center h-screen">Loading settings...</div>;
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
@@ -149,23 +213,63 @@ export default function BrandingSettings() {
                   Logo
                 </label>
                 <div className="flex flex-col gap-4">
-                  <div className="flex gap-3">
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <input 
                       type="text"
-                      className="flex-1 px-4 py-2 bg-background border rounded-lg outline-none focus:ring-2 focus:ring-primary/20"
+                      className="flex-1 px-4 py-2 bg-background border rounded-lg outline-none focus:ring-2 focus:ring-primary/20 text-xs sm:text-sm font-mono"
                       value={settings.logoUrl}
                       onChange={(e) => setSettings({ ...settings, logoUrl: e.target.value })}
                       placeholder="https://example.com/logo.png or upload below"
                     />
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={handleSaveLogoUrl}
+                        disabled={savingLogo || uploading}
+                        className="px-3 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 shrink-0 flex items-center gap-1.5"
+                        title="Apply and save this logo URL"
+                      >
+                        {savingLogo ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                        <span>Save URL</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setSettings(prev => ({ ...prev, logoUrl: '/logo.svg' }));
+                          await updateBranding({ logoUrl: '/logo.svg' });
+                          toast.success('Logo reset to default logo');
+                        }}
+                        className="px-3 py-2 bg-muted hover:bg-accent text-xs font-semibold rounded-lg border transition-colors shrink-0"
+                        title="Reset to the default AssessPro SVG logo"
+                      >
+                        Default
+                      </button>
+                      {settings.logoUrl && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setSettings(prev => ({ ...prev, logoUrl: '' }));
+                            await updateBranding({ logoUrl: '' });
+                            toast.success('Logo removed');
+                          }}
+                          className="px-3 py-2 text-destructive hover:bg-destructive/10 text-xs font-semibold rounded-lg border border-destructive/20 transition-colors shrink-0"
+                          title="Remove logo and use default shield icon"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="relative">
-                    <label className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed rounded-xl cursor-pointer hover:bg-accent transition-all group">
+                    <label className={`flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed rounded-xl cursor-pointer hover:bg-accent transition-all group ${uploading ? 'opacity-70 pointer-events-none' : ''}`}>
                       {uploading ? (
                         <Loader2 className="w-5 h-5 animate-spin text-primary" />
                       ) : (
                         <ImageIcon className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
                       )}
-                      <span className="text-sm font-medium">Click to upload logo image</span>
+                      <span className="text-sm font-medium">
+                        {uploading ? 'Processing & saving logo...' : 'Click to upload logo image (saves automatically)'}
+                      </span>
                       <input 
                         type="file" 
                         accept="image/*"
@@ -176,7 +280,7 @@ export default function BrandingSettings() {
                     </label>
                   </div>
                 </div>
-                <p className="text-[10px] text-muted-foreground">Provide a public URL or upload an image. Recommended size: 64x64px. Max size: 1MB.</p>
+                <p className="text-[10px] text-muted-foreground">Provide an image URL or upload an image file (PNG, JPG, SVG, WebP). Uploaded logos are automatically optimized and updated across the entire platform.</p>
               </div>
 
               <div className="space-y-2">
@@ -247,22 +351,32 @@ export default function BrandingSettings() {
             <h3 className="font-bold text-sm uppercase tracking-wider text-muted-foreground">Preview</h3>
             
             <div className="space-y-6">
-              <div className="p-4 border rounded-xl bg-background flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden">
-                  {settings.logoUrl ? (
-                    <img src={settings.logoUrl} alt="Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                  ) : (
-                    <ShieldCheck className="text-primary-foreground w-5 h-5" />
-                  )}
-                </div>
-                <span className="text-lg font-bold tracking-tight">{settings.appName}</span>
+              <div className="p-4 border rounded-xl bg-background flex items-center justify-between gap-3">
+                <BrandLogo 
+                  size="md" 
+                  showAppName 
+                  customLogoUrl={settings.logoUrl} 
+                  customAppName={settings.appName}
+                  appNameClassName="text-base font-bold"
+                />
               </div>
 
-              <div className="p-4 border rounded-xl bg-background space-y-2">
-                <div className="h-4 w-24 bg-muted rounded animate-pulse" />
-                <div className="h-8 w-full bg-primary/10 rounded border border-primary/20 flex items-center px-3">
-                  <div className="h-3 w-3 bg-primary rounded-full mr-2" />
-                  <div className="h-2 w-20 bg-primary/40 rounded" />
+              <div className="p-4 border rounded-xl bg-background space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Header / Banner View</p>
+                <div className="p-4 rounded-xl border flex items-center gap-4 bg-muted/20">
+                  <BrandLogo 
+                    size="lg" 
+                    customLogoUrl={settings.logoUrl} 
+                    customAppName={settings.appName}
+                  />
+                  <div>
+                    <h4 className="text-base font-bold text-foreground leading-tight">
+                      {settings.appName || 'AssessPro'}
+                    </h4>
+                    <p className="text-xs text-muted-foreground">
+                      {settings.companyName || 'Enterprise Performance & Compliance'}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>

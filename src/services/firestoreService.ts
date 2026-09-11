@@ -278,14 +278,17 @@ export const firestoreService = {
           });
         }
         
-        // Also bootstrap branding
-        await setDoc(doc(db, 'settings', 'branding'), {
-          appName: 'AssessPro',
-          companyName: 'Symetric Systems',
-          logoUrl: '/logo.svg',
-          primaryColor: '#0f172a',
-          updatedAt: new Date().toISOString()
-        });
+        // Also bootstrap branding if not already configured
+        const brandingSnap = await getDoc(doc(db, 'settings', 'branding'));
+        if (!brandingSnap.exists()) {
+          await setDoc(doc(db, 'settings', 'branding'), {
+            appName: 'AssessPro',
+            companyName: 'Symetric Systems',
+            logoUrl: '/logo.svg',
+            primaryColor: '#0f172a',
+            updatedAt: new Date().toISOString()
+          });
+        }
         console.log('Bootstrap complete.');
       }
     } catch (error) {

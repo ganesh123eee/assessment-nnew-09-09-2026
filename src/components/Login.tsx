@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { ShieldCheck, Mail, Lock, LogIn } from 'lucide-react';
 import { toast } from 'sonner';
+import { BrandLogo } from './BrandLogo';
 
 export const Login: React.FC = () => {
   const { loginWithEmail, branding } = useAuth();
@@ -66,14 +67,8 @@ export const Login: React.FC = () => {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 p-4">
       <div className="w-full max-w-md bg-card rounded-2xl shadow-xl border overflow-hidden">
-        <div className="p-8 text-center bg-primary/5 border-b">
-          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 overflow-hidden">
-            {branding.logoUrl ? (
-              <img src={branding.logoUrl} alt="Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-            ) : (
-              <ShieldCheck className="w-8 h-8 text-primary" />
-            )}
-          </div>
+        <div className="p-8 text-center bg-primary/5 border-b flex flex-col items-center">
+          <BrandLogo size="xl" className="mb-4 justify-center" />
           <h1 className="text-2xl font-bold">{branding.appName} Portal</h1>
           <p className="text-muted-foreground mt-1 text-sm">Enterprise Assessment & Performance Management</p>
         </div>

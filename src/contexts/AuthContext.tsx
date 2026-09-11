@@ -1,8 +1,15 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { db } from '../firebase';
-import { doc, collection, query, where, getDocs, getDoc } from 'firebase/firestore';
+import { doc, collection, query, where, getDocs, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { User, RoleDefinition, Permission } from '../types';
 import { firestoreService } from '../services/firestoreService';
+
+export interface BrandingInfo {
+  appName: string;
+  companyName: string;
+  logoUrl: string;
+  primaryColor?: string;
+}
 
 interface AuthContextType {
   user: User | null;
@@ -15,75 +22,127 @@ interface AuthContextType {
   isQM: boolean;
   permissions: Permission[];
   hasPermission: (permission: Permission) => boolean;
-  branding: { appName: string; companyName: string; logoUrl: string; primaryColor?: string };
+  branding: BrandingInfo;
+  updateBranding: (newBranding: Partial<BrandingInfo>) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+const getInitialBranding = (): BrandingInfo => {
+  try {
+    const cached = localStorage.getItem('assesspro_branding');
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed && typeof parsed === 'object') {
+        return {
+          appName: parsed.appName || 'AssessPro',
+          companyName: parsed.companyName || '',
+          logoUrl: parsed.logoUrl !== undefined ? parsed.logoUrl : '/logo.svg',
+          primaryColor: parsed.primaryColor || '#0f172a'
+        };
+      }
+    }
+  } catch {}
+  return { appName: 'AssessPro', companyName: '', logoUrl: '/logo.svg', primaryColor: '#0f172a' };
+};
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [permissions, setPermissions] = useState<Permission[]>([]);
-  const [branding, setBranding] = useState({ appName: 'AssessPro', companyName: '', logoUrl: '', primaryColor: '#0f172a' });
+  const [branding, setBranding] = useState<BrandingInfo>(getInitialBranding);
+
+  // Real-time synchronization of application branding across the entire app
+  useEffect(() => {
+    const unsubBranding = onSnapshot(doc(db, 'settings', 'branding'), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        const updated: BrandingInfo = {
+          appName: data.appName || 'AssessPro',
+          companyName: data.companyName || '',
+          logoUrl: data.logoUrl !== undefined ? data.logoUrl : '/logo.svg',
+          primaryColor: data.primaryColor || '#0f172a'
+        };
+        setBranding(updated);
+        try {
+          localStorage.setItem('assesspro_branding', JSON.stringify(updated));
+        } catch {}
+      }
+    }, (err) => {
+      console.warn('Branding realtime listener warning:', err);
+    });
+
+    return () => unsubBranding();
+  }, []);
+
+  const updateBranding = async (newBranding: Partial<BrandingInfo>) => {
+    const updated: BrandingInfo = {
+      ...branding,
+      ...newBranding,
+    };
+    setBranding(updated);
+    try {
+      localStorage.setItem('assesspro_branding', JSON.stringify(updated));
+    } catch {}
+    await setDoc(doc(db, 'settings', 'branding'), {
+      ...updated,
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+  };
 
   useEffect(() => {
     const initAuth = async () => {
-      // Test connection and bootstrap if needed
-      await firestoreService.testConnection();
-      await firestoreService.bootstrap();
-
-      // Load branding first
-      try {
-        const brandingRef = doc(db, 'settings', 'branding');
-        const brandingSnap = await getDoc(brandingRef);
-        if (brandingSnap.exists()) {
-          const data = brandingSnap.data();
-          setBranding({
-            appName: data.appName || 'AssessPro',
-            companyName: data.companyName || '',
-            logoUrl: data.logoUrl || '',
-            primaryColor: data.primaryColor || '#0f172a'
-          });
-        }
-      } catch (e) {
-        console.error('Failed to load branding:', e);
-      }
-
+      // 1. Instant local restore: If user was previously logged in, restore immediately without waiting for network
       const savedUser = localStorage.getItem('assesspro_user');
       if (savedUser) {
         try {
           const parsedUser = JSON.parse(savedUser) as User;
-          // Verify user still exists and is active
-          const userRef = doc(db, 'users', parsedUser.uid || parsedUser.email);
-          const docSnap = await getDoc(userRef);
-          
-          if (docSnap.exists()) {
-            const userData = docSnap.data() as User;
-            if (userData.status === 'active') {
-              // Special case for hardcoded admin
-              if (userData.email === 'ganesh@symetricsystems.com' || userData.email === 'ganesh123eee@gmail.com') {
-                if (!userData.roles) userData.roles = [];
-                if (!userData.roles.includes('super_admin')) {
-                  userData.roles.push('super_admin');
-                }
-              }
-              // Migration for single role to roles array
-              if (userData.role && (!userData.roles || userData.roles.length === 0)) {
-                userData.roles = [userData.role];
-              }
-              setUser(userData);
-            } else {
-              localStorage.removeItem('assesspro_user');
-            }
-          } else {
-            localStorage.removeItem('assesspro_user');
-          }
-        } catch (error) {
-          console.error('Auth initialization error:', error);
+          setUser(parsedUser);
+          setLoading(false); // Render UI immediately for lightning-fast page loading!
+        } catch {
           localStorage.removeItem('assesspro_user');
         }
       }
-      setLoading(false);
+
+      // 2. Run background bootstrap non-blocking
+      firestoreService.bootstrap().catch(err => {
+        console.warn('Background bootstrap notice:', err);
+      });
+
+      // 3. Verify user session in background
+      try {
+        if (!savedUser) return;
+        const parsedUser = JSON.parse(savedUser) as User;
+        const userRef = doc(db, 'users', parsedUser.uid || parsedUser.email);
+        const docSnap = await getDoc(userRef);
+
+        if (docSnap.exists()) {
+          const userData = docSnap.data() as User;
+          if (userData.status === 'active') {
+            if (userData.email === 'ganesh@symetricsystems.com' || userData.email === 'ganesh123eee@gmail.com') {
+              if (!userData.roles) userData.roles = [];
+              if (!userData.roles.includes('super_admin')) {
+                userData.roles.push('super_admin');
+              }
+            }
+            if (userData.role && (!userData.roles || userData.roles.length === 0)) {
+              userData.roles = [userData.role];
+            }
+            setUser(userData);
+            localStorage.setItem('assesspro_user', JSON.stringify(userData));
+          } else {
+            setUser(null);
+            localStorage.removeItem('assesspro_user');
+          }
+        } else {
+          setUser(null);
+          localStorage.removeItem('assesspro_user');
+        }
+      } catch (e) {
+        console.error('Init auth error:', e);
+      } finally {
+        setLoading(false);
+      }
     };
 
     initAuth();
@@ -230,11 +289,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       logout, 
       isAdmin, 
       isHR, 
-      isReviewer,
-      isQM,
-      permissions,
-      hasPermission,
-      branding
+      isReviewer, 
+      isQM, 
+      permissions, 
+      hasPermission, 
+      branding,
+      updateBranding
     }}>
       {children}
     </AuthContext.Provider>

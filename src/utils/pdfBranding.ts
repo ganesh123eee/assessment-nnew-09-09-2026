@@ -62,8 +62,31 @@ export async function drawPdfBrandingHeader(
           logoH = maxW / aspect;
         }
 
-        doc.addImage(img, 'PNG', margin, topY, logoW, logoH, undefined, 'FAST');
-        hasLogo = true;
+        // Render via high-DPI canvas to safely convert SVGs / WebP / relative URLs into PNG for jsPDF
+        try {
+          const canvas = document.createElement('canvas');
+          const scale = 2;
+          const targetW = (img.naturalWidth || 128) * scale;
+          const targetH = (img.naturalHeight || 128) * scale;
+          canvas.width = targetW;
+          canvas.height = targetH;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(img, 0, 0, targetW, targetH);
+            const pngDataUrl = canvas.toDataURL('image/png');
+            doc.addImage(pngDataUrl, 'PNG', margin, topY, logoW, logoH, undefined, 'FAST');
+            hasLogo = true;
+          } else {
+            doc.addImage(img, 'PNG', margin, topY, logoW, logoH, undefined, 'FAST');
+            hasLogo = true;
+          }
+        } catch {
+          // Fallback direct image add if canvas has security restriction
+          doc.addImage(img, 'PNG', margin, topY, logoW, logoH, undefined, 'FAST');
+          hasLogo = true;
+        }
       }
     } catch (err) {
       console.warn('Failed to render logo in PDF, rendering text branding only:', err);

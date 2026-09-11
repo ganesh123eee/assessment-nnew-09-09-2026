@@ -9,6 +9,7 @@ import { formatDate, cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { trainingRegisterService, DEFAULT_TEMPLATE_CONFIG } from '../services/trainingRegisterService';
 import { TrainingRegisterTemplateEditorModal } from '../components/TrainingRegisterTemplateEditorModal';
+import { BrandLogo } from '../components/BrandLogo';
 
 export default function TemplateList() {
   const { user, branding, isAdmin, isHR } = useAuth();
@@ -417,19 +418,11 @@ export default function TemplateList() {
             
             <div className="p-8 overflow-y-auto space-y-8">
               <div className="flex items-center justify-between border-b pb-6">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden bg-accent/20">
-                    {branding.logoUrl ? (
-                      <img src={branding.logoUrl} alt="Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                    ) : (
-                      <Award className="text-primary w-6 h-6" />
-                    )}
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-lg font-bold tracking-tight text-primary leading-tight">{branding.appName}</span>
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase">{branding.companyName}</span>
-                  </div>
-                </div>
+                <BrandLogo 
+                  size="md" 
+                  showAppName 
+                  appNameClassName="text-lg font-bold tracking-tight text-primary leading-tight" 
+                />
               </div>
 
               <div className="space-y-4">

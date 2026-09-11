@@ -114,28 +114,20 @@ async function startServer() {
           user,
           pass,
         },
-        // Office 365 / Outlook specific settings
-        // authMethod: 'LOGIN', // Let nodemailer negotiate
+        // Aggressive timeouts so unconfigured/slow SMTP servers never hang the request
+        connectionTimeout: 5000,
+        greetingTimeout: 5000,
+        socketTimeout: 8000,
         tls: {
           // Do not fail on invalid certs
           rejectUnauthorized: false,
-          // Modern servers expect TLSv1.2 or higher
           minVersion: 'TLSv1.2'
         },
         // Force STARTTLS for port 587
         requireTLS: port === 587,
-        // Enable debug logging to help diagnose issues in the console
-        debug: true,
-        logger: true
+        debug: false,
+        logger: false
       });
-
-      // Verify connection configuration
-      try {
-        await transporter.verify();
-      } catch (verifyError: any) {
-        console.error("SMTP Verification failed:", verifyError);
-        throw verifyError;
-      }
 
       await transporter.sendMail({
         from,
